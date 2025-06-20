@@ -1,0 +1,10 @@
+[project]
+name = "sheetlyy"
+version = "0.1.0"
+description = "A simple web app to convert photos of sheet music to MusicXML"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "opencv-python>=4.11.0.86",
+    "requests>=2.32.4",
+]
