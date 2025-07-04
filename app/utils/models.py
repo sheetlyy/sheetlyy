@@ -1,9 +1,12 @@
+import logging
 from pathlib import Path
 import os
 import requests
 import zipfile
-import cv2
 
+logger = logging.getLogger(__name__)
+
+MODELS_DIR = Path.cwd().joinpath("models")
 GITHUB_ASSETS_URL = "https://api.github.com/repos/sheetlyy/sheetlyy/releases/latest"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 
@@ -43,7 +46,7 @@ def unzip_model(filename: Path, output_folder: Path) -> None:
         for member in zip_contents:
             # Ensure file path is safe
             if Path(member).is_absolute() or ".." in Path(member).parts:
-                print(f"Skipping potentially unsafe file {member}")
+                logger.warning(f"Skipping potentially unsafe file {member}")
                 continue
 
             # Handle directories
@@ -63,24 +66,21 @@ def unzip_model(filename: Path, output_folder: Path) -> None:
                     target.write(chunk)
 
 
-def download_weights() -> None:
-    models_dir = Path.cwd().joinpath("models")
-    if models_dir.exists():
+def download_models() -> None:
+    if MODELS_DIR.exists():
+        logger.info("Models found, skipping download")
         return
 
     models = get_models()
 
-    print("Downloading models")
+    logger.info("Downloading models")
     for zip_name, model_url in models.items():
         try:
-            zip_path = models_dir.joinpath(zip_name)
+            zip_path = MODELS_DIR.joinpath(zip_name)
 
             download_model(model_url, zip_path)
-            unzip_model(zip_path, models_dir)
+            unzip_model(zip_path, MODELS_DIR)
         finally:
             if zip_path.exists():
                 zip_path.unlink()
-    print("Downloaded all models")
-
-
-download_weights()
+    logger.info("Downloaded all models")
