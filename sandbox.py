@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-IMAGE_PATH = "test_images/img1.JPG"
+IMAGE_PATH = "test_imgs/img1.JPG"
 
 UNET_PATH = str(MODELS_DIR.joinpath("unet_91-df68794a7f3420b749780deb1eba938911b3d0d3"))
 SEGNET_PATH = str(

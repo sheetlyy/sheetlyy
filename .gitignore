@@ -194,5 +194,5 @@ cython_debug/
 .cursorindexingignore
 
 models/
-debug_images/
-test_images/
+debug_imgs/
+test_imgs/
