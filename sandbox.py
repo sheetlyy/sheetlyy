@@ -11,7 +11,7 @@ from PIL import Image
 from app.utils.download import download_models, MODELS_DIR
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="(%(name)s:%(lineno)s) - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -526,13 +526,29 @@ def filter_segmentation_preds(
 
 ### LINE ENHANCEMENT UTILS
 def make_lines_stronger(img: NDArray, kernel_size: tuple[int, int] = (1, 2)) -> NDArray:
-    pass
+    logger.info("Strengthening staff lines")
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, kernel_size)
+    img = cv2.dilate(img.astype(np.uint8), kernel)
+    img = cv2.threshold(img, 0.1, 1, cv2.THRESH_BINARY)[1].astype(np.uint8)
+    return img
+
+
+########################################
+# BOUNDING BOX UTILS
+########################################
+@dataclass
+class 
+
+
+def create_notehead_bboxes(img: NDArray, min_size: Optional[tuple[int, int]] =(4, 4)) -> list[]
 
 
 ########################################
 
 # detect staffs in image
+logger.info("Detecting staffs")
 ## loading/preprocessing segmentation predictions
+logger.info("Loading segmentation")
 ### image preprocessing
 image = cv2.imread(IMAGE_PATH)
 image = autocrop(image)
@@ -544,6 +560,11 @@ predictions = generate_segmentation_preds(image, preprocessed)
 
 ### image postprocessing
 predictions = filter_segmentation_preds(predictions)
+predictions.staff = make_lines_stronger(predictions.staff)
+logger.info("Loaded segmentation")
+
+## predicting symbols
+logger.info("Creating bounding boxes for noteheads")
 
 write_debug_image(image, "staff.png", binary_map=predictions.staff)
 write_debug_image(image, "symbols.png", binary_map=predictions.symbols)
