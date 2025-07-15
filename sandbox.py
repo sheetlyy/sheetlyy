@@ -867,8 +867,21 @@ logger.info("Creating bounds for noteheads")
 noteheads = create_bounding_ellipses(predictions.notehead)
 logger.info("Creating bounds for staff_fragments")
 staff_fragments = create_rotated_bboxes(
-    predictions.staff, skip_merging=True, min_size=(5, 1), max_size=(100 * 100, 100)
+    predictions.staff, skip_merging=True, min_size=(5, 1), max_size=(1000 * 10, 100)
 )
+logger.info("Creating bounds for clefs_keys")
+clefs_keys = create_rotated_bboxes(
+    predictions.clefs_keys, min_size=(20, 40), max_size=(1000, 1000)
+)
+logger.info("Creating bounds for accidentals")
+accidentals = create_rotated_bboxes(
+    predictions.clefs_keys, min_size=(5, 5), max_size=(100, 100)
+)
+logger.info("Creating bounds for stems_rests")
+stems_rests = create_rotated_bboxes(predictions.stems_rests)
+
+logger.info("Creating bounds for bar_lines")
+bar_line_img =
 
 # write_debug_image(image, "staff.png", binary_map=predictions.staff)
 # write_debug_image(image, "symbols.png", binary_map=predictions.symbols)
@@ -878,3 +891,6 @@ staff_fragments = create_rotated_bboxes(
 
 write_debug_image(image, "ellipses.png", ellipses=noteheads)
 write_debug_image(image, "staff_fragments.png", rotated_bboxes=staff_fragments)
+write_debug_image(image, "clefs_keys.png", rotated_bboxes=clefs_keys)
+write_debug_image(image, "accidentals.png", rotated_bboxes=accidentals)
+write_debug_image(image, "stems_rests.png", rotated_bboxes=stems_rests)
