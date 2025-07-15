@@ -644,6 +644,11 @@ class AngledBoundingBox(Polygon):
         return str(self)
 
 
+class RotatedBoundingBox(AngledBoundingBox):
+    def __init__(self, box: cvt.RotatedRect, contours: cvt.MatLike):
+        super().__init__(box, contours, cv2.boxPoints(box).astype(np.int64))
+
+
 class BoundingEllipse(AngledBoundingBox):
     def __init__(
         self,
@@ -753,6 +758,50 @@ def create_bounding_ellipses(
     return result
 
 
+def create_rotated_bboxes(
+    img: NDArray,
+    skip_merging: bool = False,
+    min_size: Optional[tuple[int, int]] = None,
+    max_size: Optional[tuple[int, int]] = None,
+) -> list[RotatedBoundingBox]:
+    """
+    Fits and filters boxes, merges overlapping ones into groups, and fits
+    one rotated bounding box per group.
+    """
+    contours, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    boxes: list[RotatedBoundingBox] = []
+    for contour in contours:
+        fitbox = cv2.minAreaRect(contour)
+        if not has_box_valid_size(fitbox):
+            continue
+
+        box = RotatedBoundingBox(fitbox, contour)
+        box_w, box_h = box.size
+
+        if min_size and (box_w < min_size[0] or box_h < min_size[1]):
+            continue
+        if max_size:
+            if (max_size[0] > 0 and box_w > max_size[0]) or (
+                max_size[1] > 0 and box_h > max_size[1]
+            ):
+                continue
+
+        boxes.append(box)
+
+    if skip_merging:
+        return boxes
+
+    # merge overlapping boxes into groups and fit one box per group
+    groups = merge_overlaying_bboxes(boxes)
+    result = []
+    for group in groups:
+        complete_contour = np.concatenate([box.contours for box in group])
+        box = cv2.minAreaRect(complete_contour)
+        result.append(RotatedBoundingBox(box, complete_contour))
+
+    return result
+
+
 ########################################
 # TESTING UTILS
 ########################################
@@ -761,6 +810,7 @@ def write_debug_image(
     name: str,
     bbox: Optional[tuple[int, int, int, int]] = None,
     ellipses: Optional[list[BoundingEllipse]] = None,
+    rotated_bboxes: Optional[list[RotatedBoundingBox]] = None,
     binary_map: Optional[NDArray] = None,
 ):
     Path.cwd().joinpath("debug_imgs").mkdir(exist_ok=True)
@@ -780,12 +830,16 @@ def write_debug_image(
         if ellipses:
             for ellipse in ellipses:
                 cv2.ellipse(vis, ellipse.box, (0, 255, 0), 2)
+        if rotated_bboxes:
+            for box in rotated_bboxes:
+                rect_pts = cv2.boxPoints(box.box).astype(np.intp)
+                cv2.polylines(vis, [rect_pts], True, (0, 255, 0), 2)
 
         status = cv2.imwrite(filepath, vis)
         if status:
-            logger.info("image saved")
+            logger.info(f"image saved: {name}")
         else:
-            raise Exception("image error")
+            raise Exception(f"image error: {name}")
 
 
 ########################################
@@ -811,11 +865,16 @@ logger.info("Loaded segmentation")
 ## predicting symbols
 logger.info("Creating bounds for noteheads")
 noteheads = create_bounding_ellipses(predictions.notehead)
+logger.info("Creating bounds for staff_fragments")
+staff_fragments = create_rotated_bboxes(
+    predictions.staff, skip_merging=True, min_size=(5, 1), max_size=(100 * 100, 100)
+)
 
-write_debug_image(image, "staff.png", binary_map=predictions.staff)
-write_debug_image(image, "symbols.png", binary_map=predictions.symbols)
-write_debug_image(image, "stems_rests.png", binary_map=predictions.stems_rests)
-write_debug_image(image, "notehead.png", binary_map=predictions.notehead)
-write_debug_image(image, "clefs_keys.png", binary_map=predictions.clefs_keys)
+# write_debug_image(image, "staff.png", binary_map=predictions.staff)
+# write_debug_image(image, "symbols.png", binary_map=predictions.symbols)
+# write_debug_image(image, "stems_rests.png", binary_map=predictions.stems_rests)
+# write_debug_image(image, "notehead.png", binary_map=predictions.notehead)
+# write_debug_image(image, "clefs_keys.png", binary_map=predictions.clefs_keys)
 
 write_debug_image(image, "ellipses.png", ellipses=noteheads)
+write_debug_image(image, "staff_fragments.png", rotated_bboxes=staff_fragments)
