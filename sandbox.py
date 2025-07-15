@@ -8,6 +8,7 @@ import scipy.ndimage
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 from collections import defaultdict
+from enum import Enum
 from pathlib import Path
 from PIL import Image
 from app.utils.download import download_models, MODELS_DIR
@@ -668,6 +669,16 @@ class BoundingEllipse(AngledBoundingBox):
             ),
         )
 
+    def make_box_thicker(self, thickness: int) -> "BoundingEllipse":
+        return BoundingEllipse(
+            (
+                self.center,
+                (self.size[0] + thickness, self.size[1] + thickness),
+                self.angle,
+            ),
+            self.contours,
+        )
+
 
 @dataclass
 class SymbolBoundingBoxes:
@@ -813,6 +824,14 @@ def create_rotated_bboxes(
 
 
 ########################################
+# SYMBOL MODEL UTILS
+########################################
+class StemDirection(Enum):
+    UP = 1
+    DOWN = 2
+
+
+########################################
 # STAFF DETECTION UTILS
 ########################################
 def break_wide_fragments(
@@ -859,8 +878,52 @@ def break_wide_fragments(
 
 
 ########################################
+# NOTE DETECTION UTILS
+########################################
+@dataclass
+class NoteheadWithStem:
+    notehead: BoundingEllipse
+    stem: Optional[RotatedBoundingBox]
+    stem_direction: Optional[StemDirection] = None
+
+
+def combine_noteheads_with_stems(
+    noteheads: list[BoundingEllipse],
+    stems: list[RotatedBoundingBox],
+) -> list[NoteheadWithStem]:
+    """
+    Combines noteheads with their stems as this lets us differentiate between stems and bar lines.
+    """
+    result = []
+
+    # sort from top to bottom
+    noteheads = sorted(noteheads, key=lambda n: n.center[1])
+
+    for notehead in noteheads:
+        thickened_notehead = notehead.make_box_thicker(15)
+        matched_stem = None
+
+        for stem in stems:
+            if stem.is_overlapping(thickened_notehead):
+                matched_stem = stem
+                break
+
+        if matched_stem:
+            is_stem_above = matched_stem.center[1] < notehead.center[1]
+            direction = StemDirection.UP if is_stem_above else StemDirection.DOWN
+            result.append(NoteheadWithStem(notehead, matched_stem, direction))
+        else:
+            result.append(NoteheadWithStem(notehead, None, None))
+
+    return result
+
+
+########################################
 # TESTING UTILS
 ########################################
+WRITE_DEBUG_IMAGE = True
+
+
 def write_debug_image(
     image,
     name: str,
@@ -869,6 +932,9 @@ def write_debug_image(
     rotated_bboxes: Optional[list[RotatedBoundingBox]] = None,
     binary_map: Optional[NDArray] = None,
 ):
+    if not WRITE_DEBUG_IMAGE:
+        return None
+
     Path.cwd().joinpath("debug_imgs").mkdir(exist_ok=True)
     filepath = f"debug_imgs/{name}"
     if binary_map is not None:
@@ -881,7 +947,7 @@ def write_debug_image(
             cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
         if ellipses:
             for ellipse in ellipses:
-                cv2.ellipse(vis, ellipse.box, (0, 255, 0), 2)
+                cv2.ellipse(vis, ellipse.box, (255, 0, 0), 2)
         if rotated_bboxes:
             for box in rotated_bboxes:
                 rect_pts = cv2.boxPoints(box.box).astype(np.intp)
@@ -959,4 +1025,19 @@ logger.info("Predicted symbols")
 symbols.staff_fragments = break_wide_fragments(symbols.staff_fragments)
 logger.info(f"Found {len(symbols.staff_fragments)} staff line fragments")
 
-write_debug_image(image, "staff_fragments.png", rotated_bboxes=symbols.staff_fragments)
+# write_debug_image(image, "staff_fragments.png", rotated_bboxes=symbols.staff_fragments)
+
+## combine noteheads with stems
+noteheads_with_stems = combine_noteheads_with_stems(
+    symbols.noteheads, symbols.stems_rests
+)
+logger.info(f"Found {len(noteheads_with_stems)} noteheads")
+if len(noteheads_with_stems) == 0:
+    raise Exception("No noteheads found")
+
+write_debug_image(
+    image,
+    "notes_with_stems.png",
+    rotated_bboxes=[n.stem for n in noteheads_with_stems if n.stem],
+    ellipses=[n.notehead for n in noteheads_with_stems],
+)
