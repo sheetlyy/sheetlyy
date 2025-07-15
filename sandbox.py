@@ -813,6 +813,52 @@ def create_rotated_bboxes(
 
 
 ########################################
+# STAFF DETECTION UTILS
+########################################
+def break_wide_fragments(
+    fragments: list[RotatedBoundingBox],
+    limit: int = 100,
+) -> list[RotatedBoundingBox]:
+    """
+    Wide fragments (large x dimension) which are curved tend to be filtered by later steps.
+    We instead split them into smaller parts, so that the parts better approximate the different
+    angles of the curve.
+    """
+    result = []
+    for fragment in fragments:
+        remaining_fragment = fragment
+        while remaining_fragment.size[0] > limit:  # size[0] = width
+            min_x = min(c[0][0] for c in remaining_fragment.contours)
+            contours_left = [
+                c for c in remaining_fragment.contours if c[0][0] < min_x + limit
+            ]
+            contours_right = [
+                c for c in remaining_fragment.contours if c[0][0] >= min_x + limit
+            ]
+
+            # sort by x
+            contours_left = sorted(contours_left, key=lambda c: c[0][0])
+            contours_right = sorted(contours_right, key=lambda c: c[0][0])
+            if len(contours_left) == 0 or len(contours_right) == 0:
+                break
+
+            # make sure contours remain connected by adding
+            # first point of right side to left side and vice versa
+            contours_left.append(contours_right[0])
+            contours_right.append(contours_left[-1])
+
+            left_box = cv2.minAreaRect(np.array(contours_left))
+            right_box = cv2.minAreaRect(np.array(contours_right))
+
+            result.append(RotatedBoundingBox(left_box, np.array(contours_left)))
+            remaining_fragment = RotatedBoundingBox(right_box, np.array(contours_right))
+
+        result.append(remaining_fragment)
+
+    return result
+
+
+########################################
 # TESTING UTILS
 ########################################
 def write_debug_image(
@@ -908,3 +954,9 @@ logger.info("Predicted symbols")
 # write_debug_image(image, "stems_rests.png", rotated_bboxes=stems_rests)
 # write_debug_image(image, "bar_line_img.png", binary_map=bar_line_img)
 # write_debug_image(image, "bar_lines.png", rotated_bboxes=bar_lines)
+
+## breaking wide fragments
+symbols.staff_fragments = break_wide_fragments(symbols.staff_fragments)
+logger.info(f"Found {len(symbols.staff_fragments)} staff line fragments")
+
+write_debug_image(image, "staff_fragments.png", rotated_bboxes=symbols.staff_fragments)
