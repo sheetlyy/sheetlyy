@@ -60,16 +60,16 @@ def get_target_size(image: Image.Image) -> tuple[int, int]:
     """
     Calculate target size by optimizing number of pixels to 3M~4.35M.
     """
-    MIN_PIXELS = 3.00 * 1000 * 1000
-    MAX_PIXELS = 4.35 * 1000 * 1000
+    min_pixels = 3.00 * 1000 * 1000
+    max_pixels = 4.35 * 1000 * 1000
 
     w, h = image.size
     pixels = w * h
-    if MIN_PIXELS <= pixels <= MAX_PIXELS:
+    if min_pixels <= pixels <= max_pixels:
         return w, h
 
-    lower_bound = MIN_PIXELS / pixels
-    upper_bound = MAX_PIXELS / pixels
+    lower_bound = min_pixels / pixels
+    upper_bound = max_pixels / pixels
     avg_bound = (lower_bound + upper_bound) / 2
     scale_factor = pow(avg_bound, 0.5)
 
@@ -204,10 +204,10 @@ def normalize_background(image: NDArray, block_size: int) -> tuple[NDArray, NDAr
     blurred_grid = cv2.blur(block_grid, (3, 3))
 
     # Normalize brightness (lighten darker areas)
-    WHITE = 255
-    non_white = blurred_grid < WHITE
+    white = 255
+    non_white = blurred_grid < white
     max_brightness = int(np.max(blurred_grid[non_white]))
-    blurred_grid[non_white] += WHITE - max_brightness
+    blurred_grid[non_white] += white - max_brightness
 
     # Resize blurred grid to image size
     background_image = cv2.resize(
@@ -215,7 +215,7 @@ def normalize_background(image: NDArray, block_size: int) -> tuple[NDArray, NDAr
     )
 
     # Normalize image by dividing by the created background image
-    normalized = cv2.divide(image, background_image, scale=WHITE)
+    normalized = cv2.divide(image, background_image, scale=white)
 
     return normalized, background_image
 
@@ -424,7 +424,7 @@ def create_noise_mask(grayscale: NDArray) -> Optional[NDArray]:
     Divides image into 20x20 grid, calculates noise per grid tile, and
     filters out tiles that are too noisy.
     """
-    NOISE_LIMIT = 50
+    noise_limit = 50
 
     image_h, image_w = get_ndarray_dims(grayscale)
     mask = np.zeros(grayscale.shape, dtype=np.uint8)
@@ -452,9 +452,9 @@ def create_noise_mask(grayscale: NDArray) -> Optional[NDArray]:
             y2, x2 = y1 + tile_h, x1 + tile_w
             noise_level = grid[i, j]
             neighbors = get_neighbors(grid, i, j)
-            any_neighbor_above_limit = np.any(np.array(neighbors) > NOISE_LIMIT)
+            any_neighbor_above_limit = np.any(np.array(neighbors) > noise_limit)
 
-            if noise_level > NOISE_LIMIT and any_neighbor_above_limit:
+            if noise_level > noise_limit and any_neighbor_above_limit:
                 filtered += 1
             else:
                 mask[y1:y2, x1:x2] = 255
@@ -596,6 +596,9 @@ class AngledBoundingBox(Polygon):
         if not self._can_shapes_possibly_touch(other):
             return False
         return do_polygons_overlap(self.polygon, other.polygon)
+
+    def is_overlapping_with_any(self, others: Sequence["AngledBoundingBox"]) -> bool:
+        return any(self.is_overlapping(other) for other in others)
 
     def _can_shapes_possibly_touch(self, other: Polygon) -> bool:
         """
@@ -752,8 +755,8 @@ def create_bounding_ellipses(
     contours, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     ellipses = []
     for contour in contours:
-        MIN_LENGTH_TO_FIT_ELLIPSE = 5
-        if len(contour) < MIN_LENGTH_TO_FIT_ELLIPSE:
+        min_length_to_fit_ellipse = 5
+        if len(contour) < min_length_to_fit_ellipse:
             continue
 
         fitbox = cv2.fitEllipse(contour)
@@ -919,6 +922,25 @@ def combine_noteheads_with_stems(
 
 
 ########################################
+# BAR LINE DETECTION UTILS
+########################################
+def detect_bar_lines(
+    bar_lines: list[RotatedBoundingBox], unit_size: float
+) -> list[RotatedBoundingBox]:
+    """
+    Detects bar lines by filtering candidates based on size.
+    """
+    min_height = 3 * unit_size
+    max_width = 2 * unit_size
+
+    return [
+        bar_line
+        for bar_line in bar_lines
+        if bar_line.size[1] >= min_height and bar_line.size[0] <= max_width
+    ]
+
+
+########################################
 # TESTING UTILS
 ########################################
 WRITE_DEBUG_IMAGE = True
@@ -963,20 +985,20 @@ def write_debug_image(
 
 ########################################
 
-# detect staffs in image
+# DETECT STAFFS IN IMAGE
 logger.info("Detecting staffs")
-## loading/preprocessing segmentation predictions
+## LOADING/PREPROCESSING SEGMENTATION PREDICTIONS
 logger.info("Loading segmentation")
-### image preprocessing
+### IMAGE PREPROCESSING
 image = cv2.imread(IMAGE_PATH)
 image = autocrop(image)
 image = resize_image(image)
 preprocessed, _ = color_adjust(image)
 
-### model inference
+### MODEL INFERENCE
 predictions = generate_segmentation_preds(image, preprocessed)
 
-### image postprocessing
+### IMAGE POSTPROCESSING
 predictions = filter_segmentation_preds(predictions)
 predictions.staff = make_lines_stronger(predictions.staff)
 logger.info("Loaded segmentation")
@@ -987,7 +1009,7 @@ logger.info("Loaded segmentation")
 # write_debug_image(image, "notehead.png", binary_map=predictions.notehead)
 # write_debug_image(image, "clefs_keys.png", binary_map=predictions.clefs_keys)
 
-## predicting symbols
+## PREDICTING SYMBOLS
 logger.info("Creating bounds for noteheads")
 noteheads = create_bounding_ellipses(predictions.notehead)
 logger.info("Creating bounds for staff_fragments")
@@ -1021,13 +1043,13 @@ logger.info("Predicted symbols")
 # write_debug_image(image, "bar_line_img.png", binary_map=bar_line_img)
 # write_debug_image(image, "bar_lines.png", rotated_bboxes=bar_lines)
 
-## breaking wide fragments
+## BREAKING WIDE FRAGMENTS
 symbols.staff_fragments = break_wide_fragments(symbols.staff_fragments)
 logger.info(f"Found {len(symbols.staff_fragments)} staff line fragments")
 
 # write_debug_image(image, "staff_fragments.png", rotated_bboxes=symbols.staff_fragments)
 
-## combine noteheads with stems
+## COMBINING NOTEHEADS WITH STEMS
 noteheads_with_stems = combine_noteheads_with_stems(
     symbols.noteheads, symbols.stems_rests
 )
@@ -1035,9 +1057,29 @@ logger.info(f"Found {len(noteheads_with_stems)} noteheads")
 if len(noteheads_with_stems) == 0:
     raise Exception("No noteheads found")
 
-write_debug_image(
-    image,
-    "notes_with_stems.png",
-    rotated_bboxes=[n.stem for n in noteheads_with_stems if n.stem],
-    ellipses=[n.notehead for n in noteheads_with_stems],
+avg_notehead_height = float(
+    np.median([n.notehead.size[1] for n in noteheads_with_stems])
 )
+logger.info(f"Average notehead height: {avg_notehead_height}")
+
+# write_debug_image(
+#     image,
+#     "notes_with_stems.png",
+#     rotated_bboxes=[n.stem for n in noteheads_with_stems if n.stem],
+#     ellipses=[n.notehead for n in noteheads_with_stems],
+# )
+
+## DETECTING BAR LINES
+all_noteheads = [n.notehead for n in noteheads_with_stems]
+all_stems = [n.stem for n in noteheads_with_stems if n.stem is not None]
+bar_lines_or_rests = [
+    line
+    for line in symbols.bar_lines
+    if not line.is_overlapping_with_any(all_noteheads)
+    and not line.is_overlapping_with_any(all_stems)
+]
+
+bar_line_boxes = detect_bar_lines(bar_lines_or_rests, avg_notehead_height)
+logger.info(f"Found {len(bar_line_boxes)} bar lines")
+
+write_debug_image(image, "bar_line_boxes.png", rotated_bboxes=bar_line_boxes)
