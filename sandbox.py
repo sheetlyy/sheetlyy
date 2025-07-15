@@ -669,6 +669,16 @@ class BoundingEllipse(AngledBoundingBox):
         )
 
 
+@dataclass
+class SymbolBoundingBoxes:
+    noteheads: list[BoundingEllipse]
+    staff_fragments: list[RotatedBoundingBox]
+    clefs_keys: list[RotatedBoundingBox]
+    accidentals: list[RotatedBoundingBox]
+    stems_rests: list[RotatedBoundingBox]
+    bar_lines: list[RotatedBoundingBox]
+
+
 class UnionFind:
     def __init__(self, n: int):
         self.parent: list[int] = list(range(n))
@@ -817,10 +827,6 @@ def write_debug_image(
     filepath = f"debug_imgs/{name}"
     if binary_map is not None:
         status = cv2.imwrite(filepath, binary_map * 255)
-        if status:
-            logger.info("image saved")
-        else:
-            raise Exception("image error")
     else:
         vis = image.copy()
 
@@ -836,10 +842,11 @@ def write_debug_image(
                 cv2.polylines(vis, [rect_pts], True, (0, 255, 0), 2)
 
         status = cv2.imwrite(filepath, vis)
-        if status:
-            logger.info(f"image saved: {name}")
-        else:
-            raise Exception(f"image error: {name}")
+
+    if status:
+        logger.info(f"image saved: {name}")
+    else:
+        raise Exception(f"image error: {name}")
 
 
 ########################################
@@ -862,6 +869,12 @@ predictions = filter_segmentation_preds(predictions)
 predictions.staff = make_lines_stronger(predictions.staff)
 logger.info("Loaded segmentation")
 
+# write_debug_image(image, "staff.png", binary_map=predictions.staff)
+# write_debug_image(image, "symbols.png", binary_map=predictions.symbols)
+# write_debug_image(image, "stems_rests.png", binary_map=predictions.stems_rests)
+# write_debug_image(image, "notehead.png", binary_map=predictions.notehead)
+# write_debug_image(image, "clefs_keys.png", binary_map=predictions.clefs_keys)
+
 ## predicting symbols
 logger.info("Creating bounds for noteheads")
 noteheads = create_bounding_ellipses(predictions.notehead)
@@ -879,18 +892,19 @@ accidentals = create_rotated_bboxes(
 )
 logger.info("Creating bounds for stems_rests")
 stems_rests = create_rotated_bboxes(predictions.stems_rests)
-
 logger.info("Creating bounds for bar_lines")
-bar_line_img =
+kernel = np.ones((5, 3), np.uint8)
+bar_line_img = cv2.dilate(predictions.stems_rests, kernel, iterations=1)
+bar_lines = create_rotated_bboxes(bar_line_img, skip_merging=True, min_size=(1, 5))
+symbols = SymbolBoundingBoxes(
+    noteheads, staff_fragments, clefs_keys, accidentals, stems_rests, bar_lines
+)
+logger.info("Predicted symbols")
 
-# write_debug_image(image, "staff.png", binary_map=predictions.staff)
-# write_debug_image(image, "symbols.png", binary_map=predictions.symbols)
-# write_debug_image(image, "stems_rests.png", binary_map=predictions.stems_rests)
-# write_debug_image(image, "notehead.png", binary_map=predictions.notehead)
-# write_debug_image(image, "clefs_keys.png", binary_map=predictions.clefs_keys)
-
-write_debug_image(image, "ellipses.png", ellipses=noteheads)
-write_debug_image(image, "staff_fragments.png", rotated_bboxes=staff_fragments)
-write_debug_image(image, "clefs_keys.png", rotated_bboxes=clefs_keys)
-write_debug_image(image, "accidentals.png", rotated_bboxes=accidentals)
-write_debug_image(image, "stems_rests.png", rotated_bboxes=stems_rests)
+# write_debug_image(image, "ellipses.png", ellipses=noteheads)
+# write_debug_image(image, "staff_fragments.png", rotated_bboxes=staff_fragments)
+# write_debug_image(image, "clefs_keys.png", rotated_bboxes=clefs_keys)
+# write_debug_image(image, "accidentals.png", rotated_bboxes=accidentals)
+# write_debug_image(image, "stems_rests.png", rotated_bboxes=stems_rests)
+# write_debug_image(image, "bar_line_img.png", binary_map=bar_line_img)
+# write_debug_image(image, "bar_lines.png", rotated_bboxes=bar_lines)
