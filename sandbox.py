@@ -11,6 +11,7 @@ from collections import defaultdict
 from enum import Enum
 from pathlib import Path
 from PIL import Image
+from scipy import signal
 from app.utils.download import download_models, MODELS_DIR
 
 logging.basicConfig(
@@ -1231,6 +1232,143 @@ def find_staff_anchors(
     return result
 
 
+def filter_line_peaks(
+    peaks: NDArray,
+    max_gap_ratio: float = 1.5,
+) -> list[int]:
+    """
+    Assigns group IDs to peaks. Returns a list of integers assigning a group to each peak
+    (same length as `peaks`).
+    """
+    if len(peaks) < 2:
+        return list(range(len(peaks)))  # No gaps to analyze
+
+    # filter by x-axis
+    gaps = peaks[1:] - peaks[:-1]
+    count = max(5, round(len(peaks) * 0.2))
+    approx_unit = np.mean(np.sort(gaps)[:count])
+    max_gap = approx_unit * max_gap_ratio
+
+    # prepend an invalid peak for better handling edge case
+    ext_peaks = [peaks[0] - max_gap - 1] + list(peaks)
+    group_ids = []
+    curr_group_id = -1
+
+    for i in range(1, len(ext_peaks)):
+        if ext_peaks[i] - ext_peaks[i - 1] > max_gap:
+            curr_group_id += 1
+        group_ids.append(curr_group_id)
+
+    return group_ids
+
+
+def find_horizontal_lines(
+    vertical_slice: NDArray,
+    unit_size: float,
+    line_threshold: float = 0.0,
+) -> list[list[int]]:
+    """
+    Detects horizontal staff lines in a vertical image slice.
+    Returns a list of staffs as line groups, each represented by a list of 5 y-coordinates
+    of the staff lines in the group.
+    """
+    if vertical_slice.size == 0:
+        return []
+
+    # count intensity per row (y)
+    row_intensity = np.zeros(len(vertical_slice), dtype=np.uint16)
+    sub_ys = np.where(vertical_slice > 0)[0]
+    if len(sub_ys) == 0:
+        return []
+    for y in sub_ys:
+        row_intensity[y] += 1
+
+    # normalize and find peaks (potential staff lines)
+    row_intensity = np.insert(
+        row_intensity, [0, len(row_intensity)], [0, 0]  # prepend/append 0s
+    )
+    std = np.std(row_intensity)
+    if std == 0:
+        return []
+    norm = (row_intensity - np.mean(row_intensity)) / std
+    line_peaks, _ = signal.find_peaks(
+        norm, height=line_threshold, distance=unit_size, prominence=1
+    )
+    line_peaks -= 1
+    norm = norm[1:-1]  # remove prepended/appended 0s
+
+    if len(line_peaks) == 0:
+        return []
+
+    # group peaks into potential staffs
+    group_ids = filter_line_peaks(line_peaks)
+    staff_line_groups: dict[int, list[int]] = {}
+    for i, peak in enumerate(line_peaks):
+        gid = group_ids[i]
+        if gid not in staff_line_groups:
+            staff_line_groups[gid] = []
+        staff_line_groups[gid].append(peak)
+
+    # filter to only complete staffs (5 lines)
+    line_groups = [
+        sorted(lines)
+        for lines in staff_line_groups.values()
+        if len(lines) == NUMBER_OF_LINES_ON_A_STAFF
+    ]
+    return line_groups
+
+
+def predict_other_anchors_from_clefs(
+    clef_anchors: list[StaffAnchor],
+    image: NDArray,
+) -> list[RotatedBoundingBox]:
+    if len(clef_anchors) == 0:
+        return []
+
+    average_unit_size = float(np.mean([a.average_unit_size for a in clef_anchors]))
+    clefs = [a.symbol for a in clef_anchors]
+
+    # create horizontal zones around clefs (increase range right of clef to find staff lines)
+    margin_right = 10
+    ranges = [
+        range(
+            max(int(c.symbol.bottom_left[0]), 0),
+            min(int(c.symbol.top_right[0] + margin_right), image.shape[1]),
+        )
+        for c in clef_anchors
+    ]
+    ranges = sorted(ranges, key=lambda r: r.start)
+
+    # merge overlapping zones
+    clef_zones: list[range] = []
+    for i, r in enumerate(ranges):
+        if i == 0:
+            clef_zones.append(r)
+        else:
+            overlaps_with_the_last = r.start < clef_zones[-1].stop
+            if overlaps_with_the_last:
+                clef_zones[-1] = range(clef_zones[-1].start, r.stop)
+            else:
+                clef_zones.append(r)
+
+    result: list[RotatedBoundingBox] = []
+    for zone in clef_zones:
+        vertical_slice = image[:, zone.start : zone.stop]
+        line_groups = find_horizontal_lines(vertical_slice, average_unit_size)
+
+        for group in line_groups:
+            min_y, max_y = min(group), max(group)
+            center_x = zone.start + (zone.stop - zone.start) / 2
+            center_y = (min_y + max_y) / 2
+            box = (
+                (int(center_x), int(center_y)),
+                (zone.stop - zone.start, int(max_y - min_y)),
+                0,
+            )
+            result.append(RotatedBoundingBox(box, np.array([])))
+    return [b for b in result if not b.is_overlapping_with_any(clefs)]
+
+
 ########################################
 # TESTING UTILS
 ########################################
@@ -1381,11 +1519,14 @@ staff_anchors = find_staff_anchors(
 )
 logger.info(f"Found {len(staff_anchors)} clefs")
 
-write_debug_image(
-    image,
-    "staff_anchors.png",
-    rotated_bboxes=[
-        f for a in staff_anchors for l in a.staff_lines for f in l.fragments
-    ]
-    + [a.symbol for a in staff_anchors],
-)
+# write_debug_image(
+#     image,
+#     "staff_anchors.png",
+#     rotated_bboxes=[
+#         f for a in staff_anchors for l in a.staff_lines for f in l.fragments
+#     ]
+#     + [a.symbol for a in staff_anchors],
+# )
+
+possible_other_clefs = predict_other_anchors_from_clefs(staff_anchors, image)
+logger.info(f"Found {len(possible_other_clefs)} possible other clefs")
