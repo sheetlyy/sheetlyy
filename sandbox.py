@@ -1240,8 +1240,8 @@ def filter_line_peaks(
     Assigns group IDs to peaks. Returns a list of integers assigning a group to each peak
     (same length as `peaks`).
     """
-    if len(peaks) < 2:
-        return list(range(len(peaks)))  # No gaps to analyze
+    if len(peaks) == 0:
+        return []
 
     # filter by x-axis
     gaps = peaks[1:] - peaks[:-1]
@@ -1272,14 +1272,9 @@ def find_horizontal_lines(
     Returns a list of staffs as line groups, each represented by a list of 5 y-coordinates
     of the staff lines in the group.
     """
-    if vertical_slice.size == 0:
-        return []
-
     # count intensity per row (y)
     row_intensity = np.zeros(len(vertical_slice), dtype=np.uint16)
-    sub_ys = np.where(vertical_slice > 0)[0]
-    if len(sub_ys) == 0:
-        return []
+    sub_ys, _ = np.where(vertical_slice > 0)
     for y in sub_ys:
         row_intensity[y] += 1
 
@@ -1287,18 +1282,12 @@ def find_horizontal_lines(
     row_intensity = np.insert(
         row_intensity, [0, len(row_intensity)], [0, 0]  # prepend/append 0s
     )
-    std = np.std(row_intensity)
-    if std == 0:
-        return []
-    norm = (row_intensity - np.mean(row_intensity)) / std
+    norm = (row_intensity - np.mean(row_intensity)) / np.std(row_intensity)
     line_peaks, _ = signal.find_peaks(
         norm, height=line_threshold, distance=unit_size, prominence=1
     )
     line_peaks -= 1
     norm = norm[1:-1]  # remove prepended/appended 0s
-
-    if len(line_peaks) == 0:
-        return []
 
     # group peaks into potential staffs
     group_ids = filter_line_peaks(line_peaks)
@@ -1353,7 +1342,7 @@ def predict_other_anchors_from_clefs(
 
     result: list[RotatedBoundingBox] = []
     for zone in clef_zones:
-        vertical_slice = image[:, zone.start : zone.stop]
+        vertical_slice = image[:, zone]
         line_groups = find_horizontal_lines(vertical_slice, average_unit_size)
 
         for group in line_groups:
@@ -1528,5 +1517,14 @@ logger.info(f"Found {len(staff_anchors)} clefs")
 #     + [a.symbol for a in staff_anchors],
 # )
 
-possible_other_clefs = predict_other_anchors_from_clefs(staff_anchors, image)
+possible_other_clefs = predict_other_anchors_from_clefs(
+    staff_anchors, predictions.staff
+)
 logger.info(f"Found {len(possible_other_clefs)} possible other clefs")
+
+staff_anchors.extend(
+    find_staff_anchors(symbols.staff_fragments, possible_other_clefs, are_clefs=True)
+)
+staff_anchors.extend(
+    find_staff_anchors(symbols.staff_fragments, bar_line_boxes, are_clefs=False)
+)
