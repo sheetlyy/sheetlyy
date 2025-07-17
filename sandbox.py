@@ -42,6 +42,12 @@ xml_path = replace_extension(IMAGE_PATH, ".musicxml")
 ########################################
 NDArray = np.ndarray[Any, Any]
 
+NUMBER_OF_LINES_ON_A_STAFF = 5
+
+
+def max_line_gap_size(unit_size: float) -> float:
+    return 5 * unit_size
+
 
 ########################################
 # IMAGE PREPROCESSING UTILS
@@ -139,7 +145,7 @@ def get_dominant_color(
     min_val: int = 150,
     max_val: int = 254,
     default: Optional[int] = None,
-) -> Optional[int]:
+) -> int:
     if grayscale.dtype != np.uint8:
         raise TypeError("Image must be of dtype uint8")
 
@@ -149,7 +155,7 @@ def get_dominant_color(
     # Apply mask to grayscale image
     masked_grayscale = grayscale[mask]
     if masked_grayscale.size == 0:
-        return default
+        return 0 if default is None else default
 
     bins = np.bincount(masked_grayscale.flatten())
     center_of_mass = scipy.ndimage.center_of_mass(bins)[0]
@@ -196,7 +202,7 @@ def normalize_background(image: NDArray, block_size: int) -> tuple[NDArray, NDAr
             pixel_coords = (y, x)
             block_coords = get_block_coords(image.shape, pixel_coords, block_size)
             block = image[block_coords]
-            block_grid[i, j] = get_dominant_color(block, default=default_bg_color)  # type: ignore
+            block_grid[i, j] = get_dominant_color(block, default=default_bg_color)
 
     # Smooth the grid using blur
     blurred_grid = cv2.blur(block_grid, (3, 3))
@@ -650,6 +656,62 @@ class RotatedBoundingBox(AngledBoundingBox):
     def __init__(self, box: cvt.RotatedRect, contours: cvt.MatLike):
         super().__init__(box, contours, cv2.boxPoints(box).astype(np.int64))
 
+    def is_intersecting(self, other: "RotatedBoundingBox") -> bool:
+        if not self._can_shapes_possibly_touch(other):
+            return False
+        return (
+            cv2.rotatedRectangleIntersection(self.box, other.box)[0]
+            != cv2.INTERSECT_NONE
+        )
+
+    def is_overlapping_extrapolated(
+        self, other: "RotatedBoundingBox", unit_size: float
+    ) -> bool:
+        """
+        Check if two horizontal staff line fragments are close enough (in space and slope)
+        to be considered overlapping or continuous, even if there is a small gap.
+        """
+        if self.center[0] > other.center[0]:
+            left, right = other, self
+        else:
+            left, right = self, other
+        center: float = float(np.mean([left.center[0], right.center[0]]))
+        tolerance = unit_size / 3
+        max_gap = max_line_gap_size(unit_size)
+
+        left_gap = center - (left.center[0] + left.size[0] // 2)
+        right_gap = (right.center[0] - right.size[0] // 2) - center
+        if left_gap > max_gap or right_gap > max_gap:
+            return False
+
+        vertical_diff = abs(
+            left.get_center_extrapolated(center) - right.get_center_extrapolated(center)
+        )
+        if vertical_diff > tolerance:
+            return False
+
+        return True
+
+    def move_x_horizontal_by(self, x_delta: int) -> "RotatedBoundingBox":
+        new_x = self.center[0] + x_delta
+        return RotatedBoundingBox(
+            ((new_x, self.center[1]), self.size, self.angle),
+            self.contours,
+        )
+
+    def make_taller_by(self, thickness: int) -> "RotatedBoundingBox":
+        return RotatedBoundingBox(
+            (self.center, (self.size[0], self.size[1] + thickness), self.angle),
+            self.contours,
+        )
+
+    def get_center_extrapolated(self, x: float) -> float:
+        """
+        Returns the Y position at a given X,
+        based on the angle of the rotated bounding box.
+        """
+        return (x - self.center[0]) * np.tan(self.angle / 180 * np.pi) + self.center[1]
+
 
 class BoundingEllipse(AngledBoundingBox):
     def __init__(
@@ -939,6 +1001,237 @@ def detect_bar_lines(
 
 
 ########################################
+# STAFF DETECTION UTILS
+########################################
+class StaffLine:
+    """
+    Represents one staff line. Made up of multiple fragments.
+    """
+
+    def __init__(self, fragments: list[RotatedBoundingBox]):
+        self.fragments = sorted(fragments, key=lambda f: f.center[0])
+
+        self.min_x = min([frag.center[0] - frag.size[0] / 2 for frag in fragments])
+        self.max_x = max([frag.center[0] + frag.size[0] / 2 for frag in fragments])
+        self.min_y = min([frag.center[1] - frag.size[1] / 2 for frag in fragments])
+        self.max_y = max([frag.center[1] + frag.size[1] / 2 for frag in fragments])
+
+    def get_at(self, x: float) -> Optional[RotatedBoundingBox]:
+        tolerance = 10
+        for fragment in self.fragments:
+            if (
+                x >= fragment.center[0] - fragment.size[0] / 2 - tolerance
+                and x <= fragment.center[0] + fragment.size[0] / 2 + tolerance
+            ):
+                return fragment
+        return None
+
+    def is_overlapping(self, other: "StaffLine") -> bool:
+        for frag in self.fragments:
+            for other_frag in other.fragments:
+                if frag.is_overlapping(other_frag):
+                    return True
+        return False
+
+
+class StaffAnchor:
+    """
+    An anchor is what we call a reliable staff line. That is five parallel bar lines
+    which by their relation to other symbols make it likely that they belong to a staff.
+    This is a crucial step as it allows us to then build the complete staff.
+    """
+
+    def __init__(self, staff_lines: list[StaffLine], symbol: RotatedBoundingBox):
+        self.staff_lines = staff_lines
+        self.symbol = symbol
+
+        # finds y-coords of the 5 lines at the x-pos of the symbol
+        y_positions = sorted(
+            [
+                line.fragments[0].get_center_extrapolated(symbol.center[0])
+                for line in staff_lines
+            ]
+        )
+        # spacings between staff lines
+        y_deltas = [
+            abs(y_positions[i] - y_positions[i - 1]) for i in range(1, len(y_positions))
+        ]
+        self.unit_sizes = y_deltas
+        self.average_unit_size = 0.0 if len(y_deltas) == 0 else float(np.mean(y_deltas))
+
+        self.max_y = max([line.max_y for line in staff_lines])
+        self.min_y = min([line.min_y for line in staff_lines])
+
+        max_ledger_lines = 5
+        # range for staff lines
+        self.y_range = range(int(min(y_positions)), int(max(y_positions)))
+        # range for staff lines + ledger lines
+        self.zone = range(
+            int(self.min_y - max_ledger_lines * self.average_unit_size),
+            int(self.max_y + max_ledger_lines * self.average_unit_size),
+        )
+
+
+def connect_staff_lines(
+    staff_fragments: list[RotatedBoundingBox], unit_size: float
+) -> list[StaffLine]:
+    """
+    Checks which fragments connect to each other (extrapolation is used to fill gaps)
+    and builds a list of StaffLineSegments.
+    """
+    # we sort right to left so that pop() retrieves items from left to right
+    fragments_right_to_left = sorted(
+        staff_fragments, key=lambda f: f.bottom_left[0], reverse=True
+    )
+    result: list[list[RotatedBoundingBox]] = []
+    active_lines: list[list[RotatedBoundingBox]] = []
+    last_cleanup_x: float = 0
+
+    while len(fragments_right_to_left) > 0:
+        current_fragment: RotatedBoundingBox = fragments_right_to_left.pop()
+        x = current_fragment.bottom_left[0]
+
+        # removes lines that are too far behind to possibly connect with the current one
+        if x - last_cleanup_x > max_line_gap_size(unit_size):
+            active_lines = [
+                line
+                for line in active_lines
+                if x - line[-1].bottom_right[0] < max_line_gap_size(unit_size)
+            ]
+            last_cleanup_x = x
+
+        # skip very short fragments
+        if current_fragment.size[0] < unit_size / 5:
+            continue
+
+        # try to connect with active lines
+        connected = False
+        for line in active_lines:
+            if line[-1].is_overlapping_extrapolated(current_fragment, unit_size):
+                line.append(current_fragment)
+                connected = True
+                # break
+
+        # if not connected, start new group
+        if not connected:
+            new_line = [current_fragment]
+            result.append(new_line)
+            active_lines.append(new_line)
+
+    result_top_to_bottom = sorted(result, key=lambda frags: frags[0].center[1])
+    return [StaffLine(fragments) for fragments in result_top_to_bottom]
+
+
+def find_staff_anchors(
+    staff_fragments: list[RotatedBoundingBox],
+    anchor_symbols: list[RotatedBoundingBox],
+    are_clefs: bool = False,
+) -> list[StaffAnchor]:
+    """
+    Finds staff anchors by looking for five parallel lines which go
+    over or interrupt symbols which are always on staffs
+    (and never above or beyond them like notes can be).
+    """
+    result: list[StaffAnchor] = []
+
+    for center_symbol in anchor_symbols:
+        # As the symbol disconnects the staff lines it's the hardest to detect them at the center.
+        # Therefore we try to detect them at the left and right side of the symbol as well.
+        if are_clefs:
+            adjacent = [
+                center_symbol,
+                center_symbol.move_x_horizontal_by(50),
+                center_symbol,
+                center_symbol.move_x_horizontal_by(100),
+                center_symbol,
+                center_symbol.move_x_horizontal_by(150),
+            ]
+        else:
+            adjacent = [
+                center_symbol.move_x_horizontal_by(-10),
+                center_symbol.move_x_horizontal_by(-5),
+                center_symbol,
+                center_symbol.move_x_horizontal_by(5),
+                center_symbol.move_x_horizontal_by(10),
+            ]
+
+        for symbol in adjacent:
+            estimated_unit_size = round(symbol.size[1] / NUMBER_OF_LINES_ON_A_STAFF - 1)
+
+            # find fragments that overlap anchor symbol
+            thickened_symbol = symbol.make_taller_by(estimated_unit_size)
+            overlapping_fragments = [
+                f for f in staff_fragments if f.is_intersecting(thickened_symbol)
+            ]
+
+            # connect fragments into staff lines
+            connected_lines = connect_staff_lines(
+                overlapping_fragments, estimated_unit_size
+            )
+            is_short_connected_line = 2 * estimated_unit_size
+            if len(connected_lines) > NUMBER_OF_LINES_ON_A_STAFF:
+                # filter out short staff line segments
+                connected_lines = [
+                    line
+                    for line in connected_lines
+                    if (line.max_x - line.min_x) > is_short_connected_line
+                ]
+            if not len(connected_lines) == NUMBER_OF_LINES_ON_A_STAFF:
+                continue
+
+            # check if staff lines are parallel
+            are_lines_parallel = True
+            all_angles = []
+            all_fragments: list[RotatedBoundingBox] = []
+            for line in connected_lines:
+                for fragment in line.fragments:
+                    all_angles.append(fragment.angle)
+                    all_fragments.append(fragment)
+            if len(all_angles) == 0:
+                continue
+
+            average_angle = np.mean(all_angles)
+            max_angle_for_lines_to_be_parallel = 5
+            for fragment in all_fragments:
+                if (
+                    abs(fragment.angle - average_angle)
+                    > max_angle_for_lines_to_be_parallel
+                    and fragment.size[0] > is_short_connected_line
+                ):
+                    are_lines_parallel = False
+                    break
+            if not are_lines_parallel:
+                continue
+
+            # check if lines are crossing
+            are_lines_crossing = False
+            for i in range(len(connected_lines)):
+                for j in range(i + 1, len(connected_lines)):
+                    if connected_lines[i].is_overlapping(connected_lines[j]):
+                        are_lines_crossing = True
+                        break
+            if are_lines_crossing:
+                continue
+
+            # check if begins or ends on one staff line
+            if not are_clefs:
+                begins_or_ends_on_one_staff_line = False
+                for staff_line in connected_lines:
+                    fragment = staff_line.get_at(symbol.center[0])
+                    if fragment is None:
+                        continue
+                    staff_y = fragment.get_center_extrapolated(symbol.center[0])
+                    if abs(staff_y - symbol.center[1]) < estimated_unit_size:
+                        begins_or_ends_on_one_staff_line = True
+                        break
+                if not begins_or_ends_on_one_staff_line:
+                    continue
+
+            result.append(StaffAnchor(connected_lines, symbol))
+    return result
+
+
+########################################
 # TESTING UTILS
 ########################################
 WRITE_DEBUG_IMAGE = True
@@ -1080,4 +1373,19 @@ bar_lines_or_rests = [
 bar_line_boxes = detect_bar_lines(bar_lines_or_rests, avg_notehead_height)
 logger.info(f"Found {len(bar_line_boxes)} bar lines")
 
-write_debug_image(image, "bar_line_boxes.png", rotated_bboxes=bar_line_boxes)
+# write_debug_image(image, "bar_line_boxes.png", rotated_bboxes=bar_line_boxes)
+
+## DETECTING STAFFS
+staff_anchors = find_staff_anchors(
+    symbols.staff_fragments, symbols.clefs_keys, are_clefs=True
+)
+logger.info(f"Found {len(staff_anchors)} clefs")
+
+write_debug_image(
+    image,
+    "staff_anchors.png",
+    rotated_bboxes=[
+        f for a in staff_anchors for l in a.staff_lines for f in l.fragments
+    ]
+    + [a.symbol for a in staff_anchors],
+)
