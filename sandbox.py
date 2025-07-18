@@ -1754,6 +1754,25 @@ def resample_staffs(staffs: list[RawStaff]) -> list[Staff]:
     return result
 
 
+def filter_edge_of_vision(
+    staffs: list[Staff], image_shape: tuple[int, ...]
+) -> list[Staff]:
+    """
+    Removes staffs which begin at the right edge or at the lower edge of the image,
+    as these are very likely incomplete staffs.
+    """
+    h, w = image_shape[0], image_shape[1]
+
+    result = []
+    for staff in staffs:
+        starts_at_right_edge = staff.min_x > 0.90 * w
+        starts_at_bottom_edge = staff.min_y > 0.95 * h
+        ends_at_left_edge = staff.max_x < 0.20 * w
+        if not (starts_at_right_edge or starts_at_bottom_edge or ends_at_left_edge):
+            result.append(staff)
+    return result
+
+
 ########################################
 # TESTING UTILS
 ########################################
@@ -1918,5 +1937,9 @@ if len(raw_staffs_with_possible_dupes) != len(raw_staffs):
 # write_debug_image(image, "raw_staffs.png", drawables=raw_staffs)
 
 staffs = resample_staffs(raw_staffs)
+staffs = filter_edge_of_vision(staffs, image.shape)
+staffs = sorted(staffs, key=lambda staff: staff.min_y)  # sort top to bottom
+if len(staffs) == 0:
+    raise Exception("No staffs found")
 
-# write_debug_image(image, "resampled_staffs.png", drawables=staffs)
+# write_debug_image(image, "staffs.png", drawables=staffs)
