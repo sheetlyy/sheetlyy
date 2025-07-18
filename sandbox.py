@@ -936,6 +936,26 @@ class SymbolOnStaff(DebugDrawable):
         pass
 
 
+class BarLine(SymbolOnStaff):
+    def __init__(self, box: RotatedBoundingBox):
+        super().__init__(box.center)
+        self.box = box
+
+    def copy(self) -> "BarLine":
+        return BarLine(self.box)
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
+    ) -> None:
+        self.box.draw_onto_image(img, color)
+
+    def __str__(self) -> str:
+        return f"Barline({self.center})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
 class StaffPoint:
     """
     At point x, the angle and the 5 y-values of the lines of the staff.
@@ -969,7 +989,36 @@ class Staff(DebugDrawable):
         self.symbols: list[SymbolOnStaff] = []
 
         max_ledger_lines = 4
-        self.y_tolerance = max_ledger_lines * self.average_unit_size
+        self._y_tolerance = max_ledger_lines * self.average_unit_size
+
+    def is_on_staff_zone(self, item: AngledBoundingBox) -> bool:
+        # get nearest StaffPoint at item's x
+        point = self.get_at(item.center[0])
+        if point is None:
+            return False
+
+        # if out of bounds of StaffPoint's vertical range, return False
+        if (
+            item.center[1] > point.y[-1] + self._y_tolerance
+            or item.center[1] < point.y[0] - self._y_tolerance
+        ):
+            return False
+
+        return True
+
+    def add_symbol(self, symbol: SymbolOnStaff) -> None:
+        self.symbols.append(symbol)
+
+    def get_at(self, x: float) -> Optional[StaffPoint]:
+        """
+        Given x, returns the closest StaffPoint, if any.
+        """
+        staff_position_tolerance = 50
+
+        closest_point = min(self.grid, key=lambda p: abs(p.x - x))
+        if abs(closest_point.x - x) > staff_position_tolerance:
+            return None
+        return closest_point
 
     def draw_onto_image(
         self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
@@ -1774,6 +1823,34 @@ def filter_edge_of_vision(
 
 
 ########################################
+# BAR LINE DETECTION UTILS
+########################################
+def add_bar_lines_to_staffs(
+    staffs: list[Staff], bar_lines: list[RotatedBoundingBox]
+) -> list[BarLine]:
+    result = []
+    for staff in staffs:
+        for bar_line in bar_lines:
+            if not staff.is_on_staff_zone(bar_line):
+                continue
+
+            point = staff.get_at(bar_line.center[0])
+            if point is None:
+                continue
+
+            bar_line_to_staff_tolerance = 4 * point.average_unit_size
+            if abs(bar_line.top_left[1] - point.y[0]) > bar_line_to_staff_tolerance:
+                continue
+            if abs(bar_line.bottom_left[1] - point.y[-1]) > bar_line_to_staff_tolerance:
+                continue
+
+            bar_line_symbol = BarLine(bar_line)
+            staff.add_symbol(bar_line_symbol)
+            result.append(bar_line_symbol)
+    return result
+
+
+########################################
 # TESTING UTILS
 ########################################
 WRITE_DEBUG_IMAGE = True
@@ -1942,4 +2019,12 @@ staffs = sorted(staffs, key=lambda staff: staff.min_y)  # sort top to bottom
 if len(staffs) == 0:
     raise Exception("No staffs found")
 
+global_unit_size = np.mean([staff.average_unit_size for staff in staffs])
+
 # write_debug_image(image, "staffs.png", drawables=staffs)
+
+## ADDING BAR LINES TO STAFFS
+bar_lines_found = add_bar_lines_to_staffs(staffs, bar_line_boxes)
+logger.info(f"Found {len(bar_lines_found)} bar lines")
+
+# write_debug_image(image, "bar_lines_2.png", drawables=bar_lines_found)
