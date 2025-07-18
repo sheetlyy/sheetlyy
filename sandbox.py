@@ -1358,6 +1358,24 @@ def predict_other_anchors_from_clefs(
     return [b for b in result if not b.is_overlapping_with_any(clefs)]
 
 
+def filter_unusual_anchors(anchors: list[StaffAnchor]) -> list[StaffAnchor]:
+    """
+    Filters anchors by unit size.
+    """
+    if len(anchors) == 0:
+        return anchors
+
+    unit_sizes = [a.average_unit_size for a in anchors]
+    average = np.mean(unit_sizes)
+    std_dev = np.std(unit_sizes)
+
+    return [
+        anchor
+        for anchor in anchors
+        if abs(anchor.average_unit_size - average) <= 2 * std_dev
+    ]
+
+
 ########################################
 # TESTING UTILS
 ########################################
@@ -1508,15 +1526,6 @@ staff_anchors = find_staff_anchors(
 )
 logger.info(f"Found {len(staff_anchors)} clefs")
 
-# write_debug_image(
-#     image,
-#     "staff_anchors.png",
-#     rotated_bboxes=[
-#         f for a in staff_anchors for l in a.staff_lines for f in l.fragments
-#     ]
-#     + [a.symbol for a in staff_anchors],
-# )
-
 possible_other_clefs = predict_other_anchors_from_clefs(
     staff_anchors, predictions.staff
 )
@@ -1528,3 +1537,17 @@ staff_anchors.extend(
 staff_anchors.extend(
     find_staff_anchors(symbols.staff_fragments, bar_line_boxes, are_clefs=False)
 )
+
+staff_anchors = filter_unusual_anchors(staff_anchors)
+logger.info(f"Found {len(staff_anchors)} staff anchors")
+
+# write_debug_image(
+#     image,
+#     "staff_anchors.png",
+#     rotated_bboxes=[
+#         f for a in staff_anchors for l in a.staff_lines for f in l.fragments
+#     ]
+#     + [a.symbol for a in staff_anchors],
+# )
+
+raw_staffs_with_dupes = 0
