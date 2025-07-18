@@ -5,6 +5,7 @@ import cv2
 import cv2.typing as cvt
 import numpy as np
 import scipy.ndimage
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 from collections import defaultdict
@@ -526,7 +527,15 @@ def do_polygons_overlap(poly1: cvt.MatLike, poly2: cvt.MatLike) -> bool:
     return False
 
 
-class Polygon:
+class DebugDrawable(ABC):
+    @abstractmethod
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (0, 0, 255)
+    ) -> None:
+        pass
+
+
+class Polygon(DebugDrawable):
     def __init__(self, polygon: Any):
         self.polygon = polygon
 
@@ -544,6 +553,12 @@ class BoundingBox(Polygon):
         self.size = (box[2] - box[0], box[3] - box[1])
         self.rotated_box = (self.center, self.size, 0)
         super().__init__(cv2.boxPoints(self.rotated_box).astype(np.int64))
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (0, 0, 255)
+    ) -> None:
+        x1, y1, x2, y2 = self.box
+        cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
 
 
 class AngledBoundingBox(Polygon):
@@ -652,6 +667,12 @@ class AngledBoundingBox(Polygon):
     def __repr__(self) -> str:
         return str(self)
 
+    @abstractmethod
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (0, 0, 255)
+    ) -> None:
+        pass
+
 
 class RotatedBoundingBox(AngledBoundingBox):
     def __init__(self, box: cvt.RotatedRect, contours: cvt.MatLike):
@@ -713,6 +734,12 @@ class RotatedBoundingBox(AngledBoundingBox):
         """
         return (x - self.center[0]) * np.tan(self.angle / 180 * np.pi) + self.center[1]
 
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (0, 0, 255)
+    ) -> None:
+        box = cv2.boxPoints(self.box).astype(np.int64)
+        cv2.drawContours(img, [box], 0, color, 2)
+
 
 class BoundingEllipse(AngledBoundingBox):
     def __init__(
@@ -742,6 +769,11 @@ class BoundingEllipse(AngledBoundingBox):
             ),
             self.contours,
         )
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (0, 0, 255)
+    ) -> None:
+        cv2.ellipse(img, self.box, color=color, thickness=2)
 
 
 @dataclass
@@ -945,10 +977,17 @@ def break_wide_fragments(
 # NOTE DETECTION UTILS
 ########################################
 @dataclass
-class NoteheadWithStem:
+class NoteheadWithStem(DebugDrawable):
     notehead: BoundingEllipse
     stem: Optional[RotatedBoundingBox]
     stem_direction: Optional[StemDirection] = None
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
+    ) -> None:
+        self.notehead.draw_onto_image(img, color)
+        if self.stem is not None:
+            self.stem.draw_onto_image(img, color)
 
 
 def combine_noteheads_with_stems(
@@ -1004,7 +1043,7 @@ def detect_bar_lines(
 ########################################
 # STAFF DETECTION UTILS
 ########################################
-class StaffLine:
+class StaffLine(DebugDrawable):
     """
     Represents one staff line. Made up of multiple fragments.
     """
@@ -1041,8 +1080,14 @@ class StaffLine:
                     return True
         return False
 
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
+    ) -> None:
+        for fragment in self.fragments:
+            fragment.draw_onto_image(img, color)
 
-class StaffAnchor:
+
+class StaffAnchor(DebugDrawable):
     """
     An anchor is what we call a reliable staff line. That is five parallel bar lines
     which by their relation to other symbols make it likely that they belong to a staff.
@@ -1078,6 +1123,16 @@ class StaffAnchor:
             int(self.min_y - max_ledger_lines * self.average_unit_size),
             int(self.max_y + max_ledger_lines * self.average_unit_size),
         )
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (0, 255, 0)
+    ) -> None:
+        for lines in self.staff_lines:
+            lines.draw_onto_image(img, color)
+        self.symbol.draw_onto_image(img, color)
+        x = int(self.symbol.center[0])
+        cv2.line(img, [x - 50, self.zone.start], [x + 50, self.zone.start], color, 2)
+        cv2.line(img, [x - 50, self.zone.stop], [x + 50, self.zone.stop], color, 2)
 
 
 def connect_staff_lines(
@@ -1418,6 +1473,12 @@ class RawStaff(RotatedBoundingBox):
                 contours.extend(fragment.contours)
         return contours
 
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
+    ) -> None:
+        for line in self.lines:
+            line.draw_onto_image(img, color)
+
 
 def get_staff_for_anchor(
     anchor: StaffAnchor, staffs: list[RawStaff]
@@ -1487,10 +1548,8 @@ WRITE_DEBUG_IMAGE = True
 def write_debug_image(
     image,
     name: str,
-    bbox: Optional[tuple[int, int, int, int]] = None,
-    ellipses: Optional[list[BoundingEllipse]] = None,
-    rotated_bboxes: Optional[list[RotatedBoundingBox]] = None,
     binary_map: Optional[NDArray] = None,
+    drawables: Optional[Sequence[DebugDrawable]] = None,
 ):
     if not WRITE_DEBUG_IMAGE:
         return None
@@ -1499,20 +1558,10 @@ def write_debug_image(
     filepath = f"debug_imgs/{name}"
     if binary_map is not None:
         status = cv2.imwrite(filepath, binary_map * 255)
-    else:
+    elif drawables:
         vis = image.copy()
-
-        if bbox:
-            x, y, w, h = bbox
-            cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        if ellipses:
-            for ellipse in ellipses:
-                cv2.ellipse(vis, ellipse.box, (255, 0, 0), 2)
-        if rotated_bboxes:
-            for box in rotated_bboxes:
-                rect_pts = cv2.boxPoints(box.box).astype(np.intp)
-                cv2.polylines(vis, [rect_pts], True, (0, 255, 0), 2)
-
+        for d in drawables:
+            d.draw_onto_image(vis)
         status = cv2.imwrite(filepath, vis)
 
     if status:
@@ -1573,19 +1622,19 @@ symbols = SymbolBoundingBoxes(
 )
 logger.info("Predicted symbols")
 
-# write_debug_image(image, "ellipses.png", ellipses=noteheads)
-# write_debug_image(image, "staff_fragments.png", rotated_bboxes=staff_fragments)
-# write_debug_image(image, "clefs_keys.png", rotated_bboxes=clefs_keys)
-# write_debug_image(image, "accidentals.png", rotated_bboxes=accidentals)
-# write_debug_image(image, "stems_rests.png", rotated_bboxes=stems_rests)
+# write_debug_image(image, "ellipses.png", drawables=noteheads)
+# write_debug_image(image, "staff_fragments.png", drawables=staff_fragments)
+# write_debug_image(image, "clefs_keys_2.png", drawables=clefs_keys)
+# write_debug_image(image, "accidentals.png", drawables=accidentals)
+# write_debug_image(image, "stems_rests_2.png", drawables=stems_rests)
 # write_debug_image(image, "bar_line_img.png", binary_map=bar_line_img)
-# write_debug_image(image, "bar_lines.png", rotated_bboxes=bar_lines)
+# write_debug_image(image, "bar_lines.png", drawables=bar_lines)
 
 ## BREAKING WIDE FRAGMENTS
 symbols.staff_fragments = break_wide_fragments(symbols.staff_fragments)
 logger.info(f"Found {len(symbols.staff_fragments)} staff line fragments")
 
-# write_debug_image(image, "staff_fragments.png", rotated_bboxes=symbols.staff_fragments)
+# write_debug_image(image, "staff_fragments_2.png", drawables=symbols.staff_fragments)
 
 ## COMBINING NOTEHEADS WITH STEMS
 noteheads_with_stems = combine_noteheads_with_stems(
@@ -1600,12 +1649,7 @@ avg_notehead_height = float(
 )
 logger.info(f"Average notehead height: {avg_notehead_height}")
 
-# write_debug_image(
-#     image,
-#     "notes_with_stems.png",
-#     rotated_bboxes=[n.stem for n in noteheads_with_stems if n.stem],
-#     ellipses=[n.notehead for n in noteheads_with_stems],
-# )
+# write_debug_image(image, "notes_with_stems.png", drawables=noteheads_with_stems)
 
 ## DETECTING BAR LINES
 all_noteheads = [n.notehead for n in noteheads_with_stems]
@@ -1620,7 +1664,7 @@ bar_lines_or_rests = [
 bar_line_boxes = detect_bar_lines(bar_lines_or_rests, avg_notehead_height)
 logger.info(f"Found {len(bar_line_boxes)} bar lines")
 
-# write_debug_image(image, "bar_line_boxes.png", rotated_bboxes=bar_line_boxes)
+# write_debug_image(image, "bar_line_boxes.png", drawables=bar_line_boxes)
 
 ## DETECTING STAFFS
 staff_anchors = find_staff_anchors(
@@ -1643,14 +1687,7 @@ staff_anchors.extend(
 staff_anchors = filter_unusual_anchors(staff_anchors)
 logger.info(f"Found {len(staff_anchors)} staff anchors")
 
-# write_debug_image(
-#     image,
-#     "staff_anchors.png",
-#     rotated_bboxes=[
-#         f for a in staff_anchors for l in a.staff_lines for f in l.fragments
-#     ]
-#     + [a.symbol for a in staff_anchors],
-# )
+# write_debug_image(image, "staff_anchors.png", drawables=staff_anchors)
 
 raw_staffs_with_possible_dupes = find_raw_staffs_by_connecting_fragments(
     staff_anchors, symbols.staff_fragments
