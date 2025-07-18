@@ -734,6 +734,17 @@ class RotatedBoundingBox(AngledBoundingBox):
         """
         return (x - self.center[0]) * np.tan(self.angle / 180 * np.pi) + self.center[1]
 
+    def to_bounding_box(self) -> BoundingBox:
+        return BoundingBox(
+            (
+                int(self.top_left[0]),
+                int(self.top_left[1]),
+                int(self.bottom_right[0]),
+                int(self.bottom_right[1]),
+            ),
+            self.contours,
+        )
+
     def draw_onto_image(
         self, img: NDArray, color: tuple[int, int, int] = (0, 0, 255)
     ) -> None:
@@ -922,11 +933,6 @@ def create_rotated_bboxes(
 ########################################
 # MODEL UTILS
 ########################################
-class StemDirection(Enum):
-    UP = 1
-    DOWN = 2
-
-
 class SymbolOnStaff(DebugDrawable):
     def __init__(self, center: tuple[float, float]) -> None:
         self.center = center
@@ -934,6 +940,32 @@ class SymbolOnStaff(DebugDrawable):
     @abstractmethod
     def copy(self) -> Self:
         pass
+
+
+class Rest(SymbolOnStaff):
+    def __init__(self, box: BoundingBox) -> None:
+        super().__init__(box.center)
+        self.box = box
+        self.has_dot = False
+
+    def copy(self) -> "Rest":
+        return Rest(self.box)
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
+    ) -> None:
+        self.box.draw_onto_image(img, color)
+
+    def __str__(self) -> str:
+        return f"Rest({self.center})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+class StemDirection(Enum):
+    UP = 1
+    DOWN = 2
 
 
 class BarLine(SymbolOnStaff):
@@ -1851,6 +1883,42 @@ def add_bar_lines_to_staffs(
 
 
 ########################################
+# REST DETECTION UTILS
+########################################
+def add_rests_to_staffs(
+    staffs: list[Staff], rests: list[RotatedBoundingBox]
+) -> list[Rest]:
+    result = []
+    central_staff_line_idxs = [1, 2]
+    for staff in staffs:
+        for rest in rests:
+            if not staff.is_on_staff_zone(rest):
+                continue
+
+            point = staff.get_at(rest.center[0])
+            if point is None:
+                continue
+
+            center = rest.center
+            idx_of_closest_y = np.argmin(np.abs([y - center[1] for y in point.y]))
+            is_in_center = idx_of_closest_y in central_staff_line_idxs
+            if not is_in_center:
+                continue
+
+            rest_w, rest_h = rest.size
+            min_size = 0.7 * point.average_unit_size
+            max_size = 3.5 * point.average_unit_size
+            if not (min_size <= rest_w <= max_size and min_size <= rest_h <= max_size):
+                continue
+
+            bbox = rest.to_bounding_box()
+            rest_symbol = Rest(bbox)
+            staff.add_symbol(rest_symbol)
+            result.append(rest_symbol)
+    return result
+
+
+########################################
 # TESTING UTILS
 ########################################
 WRITE_DEBUG_IMAGE = True
@@ -2028,3 +2096,12 @@ bar_lines_found = add_bar_lines_to_staffs(staffs, bar_line_boxes)
 logger.info(f"Found {len(bar_lines_found)} bar lines")
 
 # write_debug_image(image, "bar_lines_2.png", drawables=bar_lines_found)
+
+## ADDING RESTS TO STAFFS
+possible_rests = [
+    rest
+    for rest in bar_lines_or_rests
+    if not rest.is_overlapping_with_any(bar_line_boxes)
+]
+rests = add_rests_to_staffs(staffs, possible_rests)
+logger.info(f"Found {len(rests)} rests")
