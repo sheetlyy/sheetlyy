@@ -7,7 +7,7 @@ import numpy as np
 import scipy.ndimage
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, Self, Iterable, Generator
 from collections import defaultdict
 from enum import Enum
 from pathlib import Path
@@ -920,11 +920,77 @@ def create_rotated_bboxes(
 
 
 ########################################
-# SYMBOL MODEL UTILS
+# MODEL UTILS
 ########################################
 class StemDirection(Enum):
     UP = 1
     DOWN = 2
+
+
+class SymbolOnStaff(DebugDrawable):
+    def __init__(self, center: tuple[float, float]) -> None:
+        self.center = center
+
+    @abstractmethod
+    def copy(self) -> Self:
+        pass
+
+
+class StaffPoint:
+    """
+    At point x, the angle and the 5 y-values of the lines of the staff.
+    """
+
+    def __init__(self, x: float, y: list[float], angle: float):
+        if len(y) != NUMBER_OF_LINES_ON_A_STAFF:
+            raise Exception("A staff must consist of exactly 5 lines")
+        self.x = x
+        self.y = y
+        self.angle = angle
+        self.average_unit_size = np.mean(np.diff(y))
+
+    def __str__(self) -> str:
+        return f"P({self.x}, {self.y[2]})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+class Staff(DebugDrawable):
+    def __init__(self, grid: list[StaffPoint]):
+        self.grid = grid
+        self.min_x = grid[0].x
+        self.max_x = grid[-1].x
+        self.min_y = min([min(p.y) for p in grid])
+        self.max_y = max([max(p.y) for p in grid])
+        self.average_unit_size = np.median([p.average_unit_size for p in grid])
+
+        self.ledger_lines: list[RotatedBoundingBox] = []
+        self.symbols: list[SymbolOnStaff] = []
+
+        max_ledger_lines = 4
+        self.y_tolerance = max_ledger_lines * self.average_unit_size
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
+    ) -> None:
+        for i in range(NUMBER_OF_LINES_ON_A_STAFF):
+            for j in range(len(self.grid) - 1):
+                p1 = self.grid[j]
+                p2 = self.grid[j + 1]
+                cv2.line(
+                    img,
+                    (int(p1.x), int(p1.y[i])),
+                    (int(p2.x), int(p2.y[i])),
+                    color,
+                    thickness=2,
+                )
+
+    def __str__(self) -> str:
+        return f"Staff({', '.join([str(s) for s in self.symbols])})"
+
+    def __repr__(self) -> str:
+        return str(self)
 
 
 ########################################
@@ -1064,6 +1130,9 @@ class StaffLine(DebugDrawable):
         return StaffLine(fragments)
 
     def get_at(self, x: float) -> Optional[RotatedBoundingBox]:
+        """
+        Gets the line fragment that is closest to the given x-value.
+        """
         tolerance = 10
         for fragment in self.fragments:
             if (
@@ -1565,6 +1634,126 @@ def remove_duplicate_staffs(staffs: list[RawStaff]) -> list[RawStaff]:
     return result
 
 
+def resample_staff_segment(
+    anchor: StaffAnchor, staff: RawStaff, axis_range: Iterable[int]
+) -> Generator[StaffPoint, None, None]:
+    """
+    Given an anchor, staff, and a range of x-coordinates, tracks and corrects the y-positions
+    of the 5 staff lines over that range. Returns a cleaned sequence of StaffPoints, one for
+    each valid x in the range.
+    """
+    anchor_x = anchor.symbol.center[0]
+    line_fragments = [line.fragments[0] for line in anchor.staff_lines]
+    y_centers: list[float] = [
+        f.get_center_extrapolated(anchor_x) for f in line_fragments
+    ]
+
+    # dummy point at anchor points
+    previous_point = StaffPoint(
+        anchor_x, y_centers, float(np.mean([f.angle for f in line_fragments]))
+    )
+
+    for x in axis_range:
+        lines = [line.get_at(x) for line in staff.lines]
+        line_ys = [
+            line.get_center_extrapolated(x) if line is not None else None
+            for line in lines
+        ]
+
+        incomplete = all(y is None for y in line_ys)
+        if incomplete:
+            continue
+
+        # invalidate lines that are not parallel
+        valid_ys = [y for y in line_ys if y is not None]
+        deltas = np.diff(valid_ys)
+        for i, delta in enumerate(deltas):
+            if delta < 0.5 * anchor.average_unit_size:
+                line_ys[i] = None
+                line_ys[i + 1] = None
+
+        # invalidate lines that shift too far from prev position
+        for i, prev_y in enumerate(previous_point.y):
+            curr_y = line_ys[i]
+            if (
+                curr_y is not None
+                and abs(curr_y - prev_y) > 0.5 * anchor.average_unit_size
+            ):
+                line_ys[i] = None
+
+        # use extrapolation based on nearby valid lines to fill in missing values.
+        # does a forward pass and a backward pass
+        last_known_idx = -1
+        for i in list(range(len(line_ys))) + list(reversed(list(range(len(line_ys))))):
+            # track last known value
+            if line_ys[i] is not None:
+                last_known_idx = i
+            # if value is missing, extrapolate
+            elif last_known_idx >= 0:
+                last_known_y = line_ys[last_known_idx]
+                if last_known_y is not None:
+                    line_ys[i] = last_known_y + anchor.average_unit_size * (
+                        i - last_known_idx
+                    )
+
+        incomplete = any(y is None for y in line_ys)
+        if incomplete:
+            continue
+
+        angle = float(np.mean([line.angle for line in lines if line is not None]))
+        previous_point = StaffPoint(x, [y for y in line_ys if y is not None], angle)
+        yield previous_point
+
+
+def resample_staffs(staffs: list[RawStaff]) -> list[Staff]:
+    """
+    The RawStaffs might have gaps and segments start and end differently on every staff line.
+    This function resamples the staffs so for every point of the staff we know the y positions
+    of all staff lines. In the end this makes the staffs easier to use in the rest of
+    the analysis.
+    """
+    result = []
+    for staff in staffs:
+        anchors_left_to_right = sorted(staff.anchors, key=lambda a: a.symbol.center[0])
+        staff_density = 10
+        start = (staff.min_x // staff_density) * staff_density
+        stop = (staff.max_x // staff_density + 1) * staff_density
+
+        grid: list[StaffPoint] = []
+        x = start
+        for i, anchor in enumerate(anchors_left_to_right):
+            # to_left = x region from current x to current anchor
+            to_left = range(int(x), int(anchor.symbol.center[0]), staff_density)
+
+            # to_right = x region from anchor to halfway to next anchor (or to end)
+            if i < len(anchors_left_to_right) - 1:
+                to_right = range(
+                    int(anchor.symbol.center[0]),
+                    int(
+                        (
+                            anchor.symbol.center[0]
+                            + anchors_left_to_right[i + 1].symbol.center[0]
+                        )
+                        / 2
+                    ),
+                    staff_density,
+                )
+            else:
+                to_right = range(int(anchor.symbol.center[0]), int(stop), staff_density)
+
+            x = to_right.stop
+
+            # goes through each anchor, processing the left and right regions of each
+            grid.extend(
+                reversed(list(resample_staff_segment(anchor, staff, reversed(to_left))))
+            )
+            grid.extend(resample_staff_segment(anchor, staff, to_right))
+
+        result.append(Staff(grid))
+
+    return result
+
+
 ########################################
 # TESTING UTILS
 ########################################
@@ -1727,3 +1916,7 @@ if len(raw_staffs_with_possible_dupes) != len(raw_staffs):
     )
 
 # write_debug_image(image, "raw_staffs.png", drawables=raw_staffs)
+
+staffs = resample_staffs(raw_staffs)
+
+# write_debug_image(image, "resampled_staffs.png", drawables=staffs)
