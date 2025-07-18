@@ -1017,6 +1017,13 @@ class StaffLine:
         self.min_y = min([frag.center[1] - frag.size[1] / 2 for frag in fragments])
         self.max_y = max([frag.center[1] + frag.size[1] / 2 for frag in fragments])
 
+    def merge(self, other: "StaffLine") -> "StaffLine":
+        fragments = self.fragments.copy()
+        for other_fragment in other.fragments:
+            if other_fragment not in fragments:
+                fragments.append(other_fragment)
+        return StaffLine(fragments)
+
     def get_at(self, x: float) -> Optional[RotatedBoundingBox]:
         tolerance = 10
         for fragment in self.fragments:
@@ -1078,7 +1085,7 @@ def connect_staff_lines(
 ) -> list[StaffLine]:
     """
     Checks which fragments connect to each other (extrapolation is used to fill gaps)
-    and builds a list of StaffLineSegments.
+    and builds a list of StaffLines.
     """
     # we sort right to left so that pop() retrieves items from left to right
     fragments_right_to_left = sorted(
@@ -1376,6 +1383,101 @@ def filter_unusual_anchors(anchors: list[StaffAnchor]) -> list[StaffAnchor]:
     ]
 
 
+class RawStaff(RotatedBoundingBox):
+    """
+    A raw staff is made of parts which we found in the image. It has gaps, and segments start and
+    end differently on every staff line.
+    """
+
+    def __init__(
+        self, staff_id: int, lines: list[StaffLine], anchors: list[StaffAnchor]
+    ):
+        contours = self._get_all_contours(lines)
+        box = cv2.minAreaRect(np.array(contours))
+        super().__init__(box, np.concatenate(contours))
+
+        self.staff_id = staff_id
+        self.lines = lines
+        self.anchors = anchors
+
+        self.min_x = self.center[0] - self.size[0] / 2
+        self.max_x = self.center[0] + self.size[0] / 2
+        self.min_y = self.center[1] - self.size[1] / 2
+        self.max_y = self.center[1] + self.size[1] / 2
+
+    def merge(self, other: "RawStaff") -> "RawStaff":
+        lines: list[StaffLine] = []
+        for i, line in enumerate(self.lines):
+            lines.append(other.lines[i].merge(line))
+        return RawStaff(self.staff_id, lines, self.anchors + other.anchors)
+
+    def _get_all_contours(self, lines: list[StaffLine]) -> list[cvt.MatLike]:
+        contours: list[cvt.MatLike] = []
+        for line in lines:
+            for fragment in line.fragments:
+                contours.extend(fragment.contours)
+        return contours
+
+
+def get_staff_for_anchor(
+    anchor: StaffAnchor, staffs: list[RawStaff]
+) -> Optional[RawStaff]:
+    for staff in staffs:
+        for i, anchor_line in enumerate(anchor.staff_lines):
+            anchor_fragments = set(anchor_line.fragments)
+            staff_fragments = set(staff.lines[i].fragments)
+            if anchor_fragments.issubset(staff_fragments):
+                return staff
+    return None
+
+
+def find_raw_staffs_by_connecting_fragments(
+    anchors: list[StaffAnchor],
+    staff_fragments: list[RotatedBoundingBox],
+) -> list[RawStaff]:
+    """
+    First we build a list of all lines by combining fragments. Then we identify the lines
+    which go through the anchors and build staffs from them.
+    """
+    staffs: list[RawStaff] = []
+    staff_id = 0
+    for anchor in anchors:
+        existing_staff = get_staff_for_anchor(anchor, staffs)
+
+        zone_fragments = [
+            fragment
+            for fragment in staff_fragments
+            if fragment.center[1] >= anchor.zone.start
+            and fragment.center[1] <= anchor.zone.stop
+        ]
+        connected_lines = connect_staff_lines(zone_fragments, anchor.average_unit_size)
+
+        staff_lines: list[StaffLine] = []
+        for anchor_line in anchor.staff_lines:
+            anchor_fragments = set(anchor_line.fragments)
+            lines_that_fit_anchor_line = [
+                line
+                for line in connected_lines
+                if anchor_fragments.issubset(set(line.fragments))
+            ]
+            if len(lines_that_fit_anchor_line) == 1:
+                staff_lines.extend(lines_that_fit_anchor_line)
+            else:
+                staff_lines.append(anchor_line)
+
+        if existing_staff:
+            staffs.remove(existing_staff)
+            staffs.append(
+                existing_staff.merge(RawStaff(staff_id, staff_lines, [anchor]))
+            )
+        else:
+            staffs.append(RawStaff(staff_id, staff_lines, [anchor]))
+
+        staff_id += 1
+
+    return staffs
+
+
 ########################################
 # TESTING UTILS
 ########################################
@@ -1550,4 +1652,7 @@ logger.info(f"Found {len(staff_anchors)} staff anchors")
 #     + [a.symbol for a in staff_anchors],
 # )
 
-raw_staffs_with_dupes = 0
+raw_staffs_with_possible_dupes = find_raw_staffs_by_connecting_fragments(
+    staff_anchors, symbols.staff_fragments
+)
+logger.info(f"Found {len(raw_staffs_with_possible_dupes)} staffs")
