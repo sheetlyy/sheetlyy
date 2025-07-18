@@ -1539,6 +1539,32 @@ def find_raw_staffs_by_connecting_fragments(
     return staffs
 
 
+def remove_duplicate_staffs(staffs: list[RawStaff]) -> list[RawStaff]:
+    """
+    Sometimes we find the same staff twice, but fail to connect them.
+    This function removes the duplicates.
+    """
+    result: list[RawStaff] = []
+    for staff in staffs:
+        overlapping = [other for other in result if staff.is_overlapping(other)]
+        if len(overlapping) == 0:
+            # if no overlap with existing staffs, add new staff
+            result.append(staff)
+            continue
+
+        if len(overlapping) >= 2:
+            # if >= 2 overlaps, just skip this staff and take existing staffs for now
+            continue
+
+        # if 1 overlap, take the one with more anchors
+        if len(overlapping[0].anchors) < len(staff.anchors):
+            # staff with the most anchors is the most reliable one
+            result = [s for s in result if s != overlapping[0]]
+            result.append(staff)
+
+    return result
+
+
 ########################################
 # TESTING UTILS
 ########################################
@@ -1693,3 +1719,11 @@ raw_staffs_with_possible_dupes = find_raw_staffs_by_connecting_fragments(
     staff_anchors, symbols.staff_fragments
 )
 logger.info(f"Found {len(raw_staffs_with_possible_dupes)} staffs")
+
+raw_staffs = remove_duplicate_staffs(raw_staffs_with_possible_dupes)
+if len(raw_staffs_with_possible_dupes) != len(raw_staffs):
+    logger.info(
+        f"Removed {len(raw_staffs_with_possible_dupes) - len(raw_staffs)} duplicate staffs"
+    )
+
+# write_debug_image(image, "raw_staffs.png", drawables=raw_staffs)
