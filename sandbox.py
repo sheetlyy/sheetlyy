@@ -931,6 +931,102 @@ def create_rotated_bboxes(
 
 
 ########################################
+# RESULTS UTILS
+########################################
+class ClefType:
+    @staticmethod
+    def treble() -> "ClefType":
+        return ClefType(sign="G")
+
+    @staticmethod
+    def bass() -> "ClefType":
+        return ClefType(sign="F")
+
+    def __init__(self, sign: str) -> None:
+        self.sign = sign.upper()
+        if self.sign not in ["G", "F", "C"]:
+            raise Exception(f"Unknown clef sign {sign}")
+
+        if sign == "G":
+            self.line = 2  # treble clef
+        if sign == "F":
+            self.line = 4  # bass clef
+        if sign == "C":
+            self.line = 3  # alto clef
+
+    def get_reference_pitch(self) -> "ResultPitch":
+        if self.sign == "G":
+            g2 = ResultPitch("C", 4, None)
+            return g2.move_by(2 * (self.line - 2), None)
+        elif self.sign == "F":
+            e2 = ResultPitch("E", 2, None)
+            return e2.move_by(2 * (self.line - 4), None)
+        elif self.sign == "C":
+            c3 = ResultPitch("C", 3, None)
+            return c3.move_by(2 * (self.line - 3), None)
+        raise ValueError(f"Unknown clef sign {str(self)}")
+
+    def __eq__(self, __value: object) -> bool:
+        if isinstance(__value, ClefType):
+            return self.sign == __value.sign and self.line == __value.line
+        else:
+            return False
+
+    def __hash__(self) -> int:
+        return hash((self.sign, self.line))
+
+    def __str__(self) -> str:
+        return f"{self.sign}{self.line}"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+note_names = ["C", "D", "E", "F", "G", "A", "B"]
+
+
+class ResultPitch:
+    def __init__(self, step: str, octave: int, alter: Optional[int]) -> None:
+        self.step = step
+        self.octave = octave
+        self.alter = alter
+
+    def move_by(self, steps: int, alter: Optional[int]) -> "ResultPitch":
+        step_idx = (note_names.index(self.step) + steps) % 7
+        step = note_names[step_idx]
+        octave = self.octave + abs(steps - step_idx) // 6 * np.sign(steps)
+        return ResultPitch(step, octave, alter)
+
+    def __eq__(self, __value: object) -> bool:
+        if isinstance(__value, ResultPitch):
+            return (
+                self.step == __value.step
+                and self.octave == __value.octave
+                and self.alter == __value.alter
+            )
+        else:
+            return False
+
+    def __hash__(self) -> int:
+        return hash((self.step, self.octave, self.alter))
+
+    def alter_str(self) -> str:
+        if self.alter == 1:
+            return "#"
+        elif self.alter == -1:
+            return "b"
+        elif self.alter == 0:
+            return "♮"
+        return ""
+
+    def __str__(self) -> str:
+        return f"{self.step}{self.octave}{self.alter_str()}"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+########################################
 # MODEL UTILS
 ########################################
 class SymbolOnStaff(DebugDrawable):
@@ -942,14 +1038,32 @@ class SymbolOnStaff(DebugDrawable):
         pass
 
 
+class Accidental(SymbolOnStaff):
+    def __init__(self, box: BoundingBox, position: int) -> None:
+        super().__init__(box.center)
+        self.box = box
+        self.position = position
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
+    ) -> None:
+        self.box.draw_onto_image(img, color)
+
+    def __str__(self) -> str:
+        return f"Accidental({self.center})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def copy(self) -> "Accidental":
+        return Accidental(self.box, self.position)
+
+
 class Rest(SymbolOnStaff):
     def __init__(self, box: BoundingBox) -> None:
         super().__init__(box.center)
         self.box = box
         self.has_dot = False
-
-    def copy(self) -> "Rest":
-        return Rest(self.box)
 
     def draw_onto_image(
         self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
@@ -962,19 +1076,86 @@ class Rest(SymbolOnStaff):
     def __repr__(self) -> str:
         return str(self)
 
+    def copy(self) -> "Rest":
+        return Rest(self.box)
+
 
 class StemDirection(Enum):
     UP = 1
     DOWN = 2
 
 
+class Note(SymbolOnStaff):
+    def __init__(
+        self,
+        box: BoundingEllipse,
+        position: int,
+        stem: Optional[RotatedBoundingBox],
+        stem_direction: Optional[StemDirection],
+    ):
+        super().__init__(box.center)
+        self.box = box
+        self.position = position
+        self.stem = stem
+        self.stem_direction = stem_direction
+
+        self.has_dot = False
+        self.clef_type = ClefType.treble()
+        self.circle_of_fifth = 0
+        self.beam_count = 0
+
+        self.accidental: Optional[Accidental] = None
+        self.beams: list[RotatedBoundingBox] = []
+        self.flags: list[RotatedBoundingBox] = []
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
+    ) -> None:
+        self.box.draw_onto_image(img, color)
+        if self.stem is not None:
+            self.stem.draw_onto_image(img, color)
+        for beam in self.beams:
+            beam.draw_onto_image(img, color)
+        for flag in self.flags:
+            flag.draw_onto_image(img, color)
+
+    def __str__(self) -> str:
+        return f"Note({self.center}, {self.position})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def copy(self) -> "Note":
+        return Note(self.box, self.position, self.stem, self.stem_direction)
+
+
+class NoteGroup(SymbolOnStaff):
+    def __init__(self, notes: list[Note]) -> None:
+        average_center = np.mean([note.center for note in notes], axis=0)
+        super().__init__(average_center)
+        # sort notes by pitch, highest pos first
+        self.notes = sorted(notes, key=lambda note: note.position, reverse=True)
+
+    def draw_onto_image(
+        self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
+    ) -> None:
+        for note in self.notes:
+            note.draw_onto_image(img, color)
+
+    def __str__(self) -> str:
+        return f"NoteGroup({', '.join([str(note) for note in self.notes])})"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def copy(self) -> "NoteGroup":
+        return NoteGroup([note.copy() for note in self.notes])
+
+
 class BarLine(SymbolOnStaff):
     def __init__(self, box: RotatedBoundingBox):
         super().__init__(box.center)
         self.box = box
-
-    def copy(self) -> "BarLine":
-        return BarLine(self.box)
 
     def draw_onto_image(
         self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
@@ -986,6 +1167,9 @@ class BarLine(SymbolOnStaff):
 
     def __repr__(self) -> str:
         return str(self)
+
+    def copy(self) -> "BarLine":
+        return BarLine(self.box)
 
 
 class StaffPoint:
@@ -1000,6 +1184,20 @@ class StaffPoint:
         self.y = y
         self.angle = angle
         self.average_unit_size = np.mean(np.diff(y))
+
+    def find_position_in_unit_sizes(self, box: AngledBoundingBox) -> int:
+        center = box.center
+        idx_of_closest_y = int(
+            np.argmin(np.abs([y_value - center[1] for y_value in self.y]))
+        )
+        distance = self.y[idx_of_closest_y] - center[1]
+        distance_in_unit_sizes = round(2 * distance / self.average_unit_size)
+        position = (
+            2 * (NUMBER_OF_LINES_ON_A_STAFF - idx_of_closest_y)
+            + distance_in_unit_sizes
+            - 1
+        )
+        return position
 
     def __str__(self) -> str:
         return f"P({self.x}, {self.y[2]})"
@@ -1052,6 +1250,15 @@ class Staff(DebugDrawable):
             return None
         return closest_point
 
+    def get_notes(self) -> list[Note]:
+        return [s for s in self.symbols if isinstance(s, Note)]
+
+    def get_note_groups(self) -> list[NoteGroup]:
+        return [s for s in self.symbols if isinstance(s, NoteGroup)]
+
+    def get_all_except_notes(self) -> list[SymbolOnStaff]:
+        return [s for s in self.symbols if not isinstance(s, Note)]
+
     def draw_onto_image(
         self, img: NDArray, color: tuple[int, int, int] = (255, 0, 0)
     ) -> None:
@@ -1073,51 +1280,8 @@ class Staff(DebugDrawable):
     def __repr__(self) -> str:
         return str(self)
 
-
-########################################
-# STAFF DETECTION UTILS
-########################################
-def break_wide_fragments(
-    fragments: list[RotatedBoundingBox],
-    limit: int = 100,
-) -> list[RotatedBoundingBox]:
-    """
-    Wide fragments (large x dimension) which are curved tend to be filtered by later steps.
-    We instead split them into smaller parts, so that the parts better approximate the different
-    angles of the curve.
-    """
-    result = []
-    for fragment in fragments:
-        remaining_fragment = fragment
-        while remaining_fragment.size[0] > limit:  # size[0] = width
-            min_x = min(c[0][0] for c in remaining_fragment.contours)
-            contours_left = [
-                c for c in remaining_fragment.contours if c[0][0] < min_x + limit
-            ]
-            contours_right = [
-                c for c in remaining_fragment.contours if c[0][0] >= min_x + limit
-            ]
-
-            # sort by x
-            contours_left = sorted(contours_left, key=lambda c: c[0][0])
-            contours_right = sorted(contours_right, key=lambda c: c[0][0])
-            if len(contours_left) == 0 or len(contours_right) == 0:
-                break
-
-            # make sure contours remain connected by adding
-            # first point of right side to left side and vice versa
-            contours_left.append(contours_right[0])
-            contours_right.append(contours_left[-1])
-
-            left_box = cv2.minAreaRect(np.array(contours_left))
-            right_box = cv2.minAreaRect(np.array(contours_right))
-
-            result.append(RotatedBoundingBox(left_box, np.array(contours_left)))
-            remaining_fragment = RotatedBoundingBox(right_box, np.array(contours_right))
-
-        result.append(remaining_fragment)
-
-    return result
+    def copy(self) -> "Staff":
+        return Staff(self.grid)
 
 
 ########################################
@@ -1168,23 +1332,202 @@ def combine_noteheads_with_stems(
     return result
 
 
-########################################
-# BAR LINE DETECTION UTILS
-########################################
-def detect_bar_lines(
-    bar_lines: list[RotatedBoundingBox], unit_size: float
-) -> list[RotatedBoundingBox]:
-    """
-    Detects bar lines by filtering candidates based on size.
-    """
-    min_height = 3 * unit_size
-    max_width = 2 * unit_size
+def get_center(bbox: cvt.Rect) -> tuple[int, int]:
+    x1, y1, x2, y2 = bbox
+    cen_y = int(round((y1 + y2) / 2))
+    cen_x = int(round((x1 + x2) / 2))
+    return cen_x, cen_y
 
-    return [
-        bar_line
-        for bar_line in bar_lines
-        if bar_line.size[1] >= min_height and bar_line.size[0] <= max_width
+
+def adjust_bbox(bbox: cvt.Rect, noteheads: NDArray) -> cvt.Rect:
+    x1, y1, x2, y2 = bbox
+    region = noteheads[y1:y2, x1:x2]
+    ys, _ = np.where(region > 0)
+    if len(ys) == 0:
+        # invalid note, will be eliminated with 0 height
+        return bbox
+    top = np.min(ys) + y1 - 1
+    bottom = np.max(ys) + y1 + 1
+    return (x1, int(top), x2, int(bottom))
+
+
+def check_bbox_size(
+    bbox: cvt.Rect, noteheads: NDArray, unit_size: float
+) -> list[cvt.Rect]:
+    x1, y1, x2, y2 = bbox
+
+    # actual note size
+    w = x2 - x1
+    h = y2 - y1
+    cen_x, _ = get_center(bbox)
+
+    # expected note size
+    notehead_size_ratio = 1.285714  # width/height
+    expected_w = notehead_size_ratio * unit_size
+    expected_h = unit_size
+
+    result: list[cvt.Rect] = []
+    if abs(w - expected_w) > abs(w - expected_w * 2):
+        # contains at least 2 notes, 1 left and 1 right
+        left_box: cvt.Rect = (x1, y1, cen_x, y2)
+        right_box: cvt.Rect = (cen_x, y1, x2, y2)
+
+        # upper and lower bounds could have changed
+        left_box = adjust_bbox(left_box, noteheads)
+        right_box = adjust_bbox(right_box, noteheads)
+
+        # check recursively
+        if left_box is not None:
+            result.extend(check_bbox_size(left_box, noteheads, unit_size))
+        if right_box is not None:
+            result.extend(check_bbox_size(right_box, noteheads, unit_size))
+
+    # check height
+    if len(result) > 0:
+        result = [
+            b for box in result for b in check_bbox_size(box, noteheads, unit_size)
+        ]
+    else:
+        num_notes = int(round(h / expected_h))
+        if num_notes > 0:
+            sub_h = h // num_notes
+            for i in range(num_notes):
+                sub_box = (
+                    x1,
+                    round(y1 + i * sub_h),
+                    x2,
+                    round(y1 + (i + 1) * sub_h),
+                )
+                result.append(sub_box)
+
+    return result
+
+
+def split_clumps_of_noteheads(
+    notehead: NoteheadWithStem, noteheads: NDArray, staff: Staff
+) -> list[NoteheadWithStem]:
+    """
+    Noteheads might be clumped together by the notehead detection algorithm.
+    """
+    bbox = [
+        int(notehead.notehead.top_left[0]),
+        int(notehead.notehead.top_left[1]),
+        int(notehead.notehead.bottom_right[0]),
+        int(notehead.notehead.bottom_right[1]),
     ]
+    split_boxes = check_bbox_size(bbox, noteheads, staff.average_unit_size)  # type: ignore
+    if len(split_boxes) <= 1:
+        return [notehead]
+
+    result = []
+    for box in split_boxes:
+        x1, y1, x2, y2 = box
+        center = get_center(box)
+        size = (x2 - x1, y2 - y1)
+        new_note = NoteheadWithStem(
+            BoundingEllipse((center, size, 0), notehead.notehead.contours),
+            notehead.stem,
+            notehead.stem_direction,
+        )
+        result.append(new_note)
+    return result
+
+
+def are_notes_likely_a_chord(note1: Note, note2: Note, tolerance: float) -> bool:
+    if note1.stem is None or note2.stem is None:
+        return abs(note1.center[0] - note2.center[0]) < tolerance
+    return abs(note1.stem.center[0] - note2.stem.center[0]) < tolerance
+
+
+def create_note_group(notes: list[Note]) -> Note | NoteGroup:
+    if len(notes) == 1:
+        return notes[0]
+    return NoteGroup(notes)
+
+
+def group_notes_on_staff(staff: Staff) -> None:
+    notes = staff.get_notes()
+    groups: list[list[Note]] = []
+
+    for note in notes:
+        group_found = False
+        for group in groups:
+            # check if this note belongs to any note in group
+            if any(
+                are_notes_likely_a_chord(
+                    note, grouped_note, staff.average_unit_size  # type: ignore
+                )
+                for grouped_note in group
+            ):
+                group.append(note)
+                group_found = True
+                break
+        if not group_found:
+            groups.append([note])
+
+    note_groups: list[SymbolOnStaff] = [create_note_group(group) for group in groups]
+    note_groups.extend(staff.get_all_except_notes())
+    # sort by x
+    staff.symbols = sorted(note_groups, key=lambda group: group.center[0])
+
+
+def add_notes_to_staffs(
+    staffs: list[Staff], noteheads: list[NoteheadWithStem], notehead_pred: NDArray
+) -> list[Note]:
+    result = []
+    for staff in staffs:
+        for notehead_chunk in noteheads:
+            # validate position
+            if not staff.is_on_staff_zone(notehead_chunk.notehead):
+                continue
+
+            center = notehead_chunk.notehead.center
+            point = staff.get_at(center[0])
+            if point is None:
+                continue
+
+            # validate size
+            notehead_chunk_w, notehead_chunk_h = notehead_chunk.notehead.size
+            if (
+                notehead_chunk_w < 0.5 * point.average_unit_size
+                or notehead_chunk_h < 0.5 * point.average_unit_size
+            ):
+                continue
+
+            # split and validate each notehead
+            for note in split_clumps_of_noteheads(notehead_chunk, notehead_pred, staff):
+                # validate split notehead position
+                point = staff.get_at(note.notehead.center[0])
+                if point is None:
+                    continue
+
+                # validate split notehead size
+                note_w, note_h = note.notehead.size
+                if (
+                    note_w < 0.5 * point.average_unit_size
+                    or note_w > 3 * point.average_unit_size
+                    or note_h < 0.5 * point.average_unit_size
+                    or note_h > 2 * point.average_unit_size
+                ):
+                    continue
+
+                position = point.find_position_in_unit_sizes(note.notehead)
+                new_note = Note(note.notehead, position, note.stem, note.stem_direction)
+                result.append(new_note)
+                staff.add_symbol(new_note)
+
+    # group notes into chords and update staff symbols
+    total_notes = 0
+    total_groups = 0
+    for staff in staffs:
+        group_notes_on_staff(staff)
+        total_notes += len(staff.get_notes())
+        total_groups += len(staff.get_note_groups())
+
+    logger.info(
+        f"After grouping there are {total_notes} notes and {total_groups} note groups"
+    )
+    return result
 
 
 ########################################
@@ -1283,6 +1626,49 @@ class StaffAnchor(DebugDrawable):
         x = int(self.symbol.center[0])
         cv2.line(img, [x - 50, self.zone.start], [x + 50, self.zone.start], color, 2)
         cv2.line(img, [x - 50, self.zone.stop], [x + 50, self.zone.stop], color, 2)
+
+
+def break_wide_fragments(
+    fragments: list[RotatedBoundingBox],
+    limit: int = 100,
+) -> list[RotatedBoundingBox]:
+    """
+    Wide fragments (large x dimension) which are curved tend to be filtered by later steps.
+    We instead split them into smaller parts, so that the parts better approximate the different
+    angles of the curve.
+    """
+    result = []
+    for fragment in fragments:
+        remaining_fragment = fragment
+        while remaining_fragment.size[0] > limit:  # size[0] = width
+            min_x = min(c[0][0] for c in remaining_fragment.contours)
+            contours_left = [
+                c for c in remaining_fragment.contours if c[0][0] < min_x + limit
+            ]
+            contours_right = [
+                c for c in remaining_fragment.contours if c[0][0] >= min_x + limit
+            ]
+
+            # sort by x
+            contours_left = sorted(contours_left, key=lambda c: c[0][0])
+            contours_right = sorted(contours_right, key=lambda c: c[0][0])
+            if len(contours_left) == 0 or len(contours_right) == 0:
+                break
+
+            # make sure contours remain connected by adding
+            # first point of right side to left side and vice versa
+            contours_left.append(contours_right[0])
+            contours_right.append(contours_left[-1])
+
+            left_box = cv2.minAreaRect(np.array(contours_left))
+            right_box = cv2.minAreaRect(np.array(contours_right))
+
+            result.append(RotatedBoundingBox(left_box, np.array(contours_left)))
+            remaining_fragment = RotatedBoundingBox(right_box, np.array(contours_right))
+
+        result.append(remaining_fragment)
+
+    return result
 
 
 def connect_staff_lines(
@@ -1857,6 +2243,22 @@ def filter_edge_of_vision(
 ########################################
 # BAR LINE DETECTION UTILS
 ########################################
+def detect_bar_lines(
+    bar_lines: list[RotatedBoundingBox], unit_size: float
+) -> list[RotatedBoundingBox]:
+    """
+    Detects bar lines by filtering candidates based on size.
+    """
+    min_height = 3 * unit_size
+    max_width = 2 * unit_size
+
+    return [
+        bar_line
+        for bar_line in bar_lines
+        if bar_line.size[1] >= min_height and bar_line.size[0] <= max_width
+    ]
+
+
 def add_bar_lines_to_staffs(
     staffs: list[Staff], bar_lines: list[RotatedBoundingBox]
 ) -> list[BarLine]:
@@ -1915,6 +2317,50 @@ def add_rests_to_staffs(
             rest_symbol = Rest(bbox)
             staff.add_symbol(rest_symbol)
             result.append(rest_symbol)
+    return result
+
+
+########################################
+# BRACE/DOT DETECTION UTILS
+########################################
+def prepare_brace_dot_image(symbols: NDArray, staff: NDArray) -> NDArray:
+    brace_dot = cv2.subtract(symbols, staff)
+    # remove horizontal lines
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (1, 5))
+    out = cv2.erode(brace_dot.astype(np.uint8), kernel)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (1, 5))
+    return cv2.dilate(out, kernel)
+
+
+########################################
+# ACCIDENTAL DETECTION UTILS
+########################################
+def add_accidentals_to_staffs(
+    staffs: list[Staff], accidentals: list[RotatedBoundingBox]
+) -> list[Accidental]:
+    result = []
+    for staff in staffs:
+        for accidental in accidentals:
+            # validate position
+            if not staff.is_on_staff_zone(accidental):
+                continue
+
+            point = staff.get_at(accidental.center[0])
+            if point is None:
+                continue
+
+            # validate size
+            w, h = accidental.size
+            min_size = 0.5 * staff.average_unit_size
+            max_size = 3 * staff.average_unit_size
+            if any(dim < min_size or dim > max_size for dim in (w, h)):
+                continue
+
+            position = point.find_position_in_unit_sizes(accidental)
+            accidental_bbox = accidental.to_bounding_box()
+            symbol = Accidental(accidental_bbox, position)
+            staff.add_symbol(symbol)
+            result.append(symbol)
     return result
 
 
@@ -2105,3 +2551,21 @@ possible_rests = [
 ]
 rests = add_rests_to_staffs(staffs, possible_rests)
 logger.info(f"Found {len(rests)} rests")
+
+## PREPARING BRACES AND DOTS
+all_classified = predictions.notehead + predictions.clefs_keys + predictions.stems_rests
+brace_dot_img = prepare_brace_dot_image(predictions.symbols, predictions.staff)
+brace_dot = create_rotated_bboxes(brace_dot_img, skip_merging=True, max_size=(100, -1))
+
+# write_debug_image(image, "brace_dot_img.png", binary_map=brace_dot_img)
+
+## ADDING NOTES TO STAFFS
+notes = add_notes_to_staffs(staffs, noteheads_with_stems, predictions.notehead)
+
+# write_debug_image(image, "notes_on_staffs.png", drawables=notes)
+
+## ADDING ACCIDENTALS TO STAFFS
+accidentals = add_accidentals_to_staffs(staffs, symbols.accidentals)
+logger.info(f"Found {len(accidentals)} accidentals")
+
+# write_debug_image(image, "accidentals.png", drawables=accidentals)
