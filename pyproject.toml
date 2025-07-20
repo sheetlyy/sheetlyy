@@ -5,10 +5,15 @@ description = "A simple web app to convert photos of sheet music to MusicXML"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "albumentations>=2.0.8",
     "numpy==1.26.4",
     "opencv-python>=4.11.0.86",
     "pillow>=11.2.1",
     "requests>=2.32.4",
-    "scipy>=1.15.3",
-    "tensorflow>=2.14.0",
+    "scikit-image==0.25.2",
+    "scipy==1.13.0",
+    "tensorflow==2.16.1",
+    "timm==0.9.16",
+    "torch==2.2.2",
+    "x-transformers==1.30.0",
 ]
