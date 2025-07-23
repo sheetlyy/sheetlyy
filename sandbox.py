@@ -34,6 +34,7 @@ from app.detection.brace_dot import (
 )
 from app.detection.accidental import add_accidentals_to_staffs
 from app.parser.staff import parse_staffs
+from app.musicxml.accidental_rules import maintain_accidentals
 
 logging.basicConfig(
     level=logging.INFO,
@@ -243,3 +244,9 @@ title = "Title"
 
 # PARSE STAFFS (RUN TROMR)
 result_staffs = parse_staffs(multi_staffs, predictions.preprocessed)
+
+# MAINTAIN ACCIDENTALS
+result_staffs = maintain_accidentals(result_staffs)
+
+# GENERATE MUSICXML
+xml = 

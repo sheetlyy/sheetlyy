@@ -94,6 +94,9 @@ class ResultPitch:
         self.octave = octave
         self.alter = alter
 
+    def name_and_octave(self) -> str:
+        return self.step + str(self.octave)
+
     def get_relative_position(self, other: "ResultPitch") -> int:
         return (
             (self.octave - other.octave) * 7
