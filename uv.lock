@@ -531,6 +531,18 @@ wheels = [
 ]
 
 [[package]]
+name = "musicxml"
+version = "1.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "verysimpletree" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bf/89/bff27f31165a2b1ebdbf87b519666302bff26bdffa47393363e923c058bb/musicxml-1.6.1.tar.gz", hash = "sha256:a90e5ef8512c40af9f65ab8d0627afa19ef4a26aac97052287a6f0b2f9db7ae9", size = 873137, upload-time = "2024-12-24T09:37:16.389Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/70/b0eb5a86e2ecc91456bb863880e47a3e539e3f515d4c9b4b3c884e5510db/musicxml-1.6.1-py3-none-any.whl", hash = "sha256:43ad9607453a0e91585b6c18a45dd1ba9681e1317b5133e34b5195f18d513d5a", size = 978149, upload-time = "2024-12-24T09:37:13.714Z" },
+]
+
+[[package]]
 name = "namex"
 version = "0.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1215,6 +1227,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "albumentations" },
+    { name = "musicxml" },
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "pillow" },
@@ -1230,6 +1243,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "albumentations", specifier = ">=2.0.8" },
+    { name = "musicxml", specifier = ">=1.6.1" },
     { name = "numpy", specifier = "==1.26.4" },
     { name = "opencv-python", specifier = ">=4.11.0.86" },
     { name = "pillow", specifier = ">=11.2.1" },
@@ -1700,6 +1714,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/15/22/9ee70a2574a4f4599c47dd506532914ce044817c7752a79b6a51286319bc/urllib3-2.5.0.tar.gz", hash = "sha256:3fc47733c7e419d4bc3f6b3dc2b4f890bb743906a30d56ba4a5bfa4bbff92760", size = 393185, upload-time = "2025-06-18T14:07:41.644Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/c2/fe1e52489ae3122415c51f387e221dd0773709bad6c6cdaa599e8a2c5185/urllib3-2.5.0-py3-none-any.whl", hash = "sha256:e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc", size = 129795, upload-time = "2025-06-18T14:07:40.39Z" },
+]
+
+[[package]]
+name = "verysimpletree"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9c/20/a45a7e9beba4ecc9b1f3a5c7a7cea96780e483a52846d9b0ea0f86e0c34a/verysimpletree-1.2.1.tar.gz", hash = "sha256:7c00da22b427f7d6a1a03053b660cada1a0750d823f6fd08f7308c312187aa1f", size = 9909, upload-time = "2024-12-31T13:28:53.015Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/e7/00d75a4c266b83e0a2ac4d2747edd0e281cf8627027b3bffb4467d1ab49b/verysimpletree-1.2.1-py3-none-any.whl", hash = "sha256:993e63df314a69de0a138cc5a3d7610cf2af8cfae082f8348a2673fe7b85a9b8", size = 10863, upload-time = "2024-12-31T13:28:50.758Z" },
 ]
 
 [[package]]
