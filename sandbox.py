@@ -241,9 +241,6 @@ logger.info(
 
 write_debug_image(image, "23_multi_staffs.png", drawables=multi_staffs)
 
-## DETECTING TITLE
-title = "Title"
-
 # PARSE STAFFS (RUN TROMR)
 result_staffs = parse_staffs(multi_staffs, predictions.preprocessed)
 
