@@ -3,7 +3,7 @@ name = "sheetlyy"
 version = "0.1.0"
 description = "A simple web app to convert photos of sheet music to MusicXML"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "albumentations>=2.0.8",
     "musicxml>=1.6.1",
@@ -17,4 +17,6 @@ dependencies = [
     "timm==0.9.16",
     "torch==2.2.2",
     "x-transformers==1.30.0",
+
+    "fastapi[standard]>=0.116.1",
 ]
