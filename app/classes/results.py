@@ -2,6 +2,7 @@ import logging
 import numpy as np
 from typing import Optional
 from enum import Enum
+from dataclasses import dataclass
 
 from app.utils.constants import TRIPLET_SYMBOL, DURATION_OF_QUARTER
 
@@ -324,6 +325,7 @@ class ResultMeasure:
     def __init__(self, symbols: list[ResultSymbol]):
         self.symbols = symbols
         self.is_new_line = False
+        self.is_new_page = False
 
     def is_empty(self) -> bool:
         return len(self.symbols) == 0
@@ -380,3 +382,8 @@ class ResultStaff:
 
     def __repr__(self) -> str:
         return str(self)
+
+
+@dataclass
+class Page:
+    staffs: list[ResultStaff]

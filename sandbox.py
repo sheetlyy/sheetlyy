@@ -33,10 +33,11 @@ from app.detection.brace_dot import (
     find_braces_brackets_and_grand_staff_lines,
 )
 from app.detection.accidental import add_accidentals_to_staffs
-from app.parser.staff import parse_staffs
+from app.parser.staff import parse_staffs, merge_staffs_across_pages
 from app.musicxml.accidental_rules import maintain_accidentals
 from app.musicxml.xml_generator import generate_xml
 from app.utils.debug import write_debug_image
+from app.classes.results import Page
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,211 +45,222 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-IMAGE_PATH = "test_imgs/img1.JPG"
+IMAGE_PATHS = ["test_imgs/img1.JPG", "test_imgs/img2.JPG"]
 
 
 # download models
 download_models()
 
-
-# replace extension
-def replace_extension(path: str, new_extension: str) -> str:
-    return Path.cwd().joinpath(path).stem + new_extension
+xml_path = "result.musicxml"
 
 
-xml_path = replace_extension(IMAGE_PATH, ".musicxml")
+pages: list[Page] = []
+for idx, image_path in enumerate(IMAGE_PATHS):
+    # DETECT STAFFS IN IMAGE
+    logger.info("Detecting staffs")
+    ## LOADING/PREPROCESSING SEGMENTATION PREDICTIONS
+    logger.info("Loading segmentation")
+    ### IMAGE PREPROCESSING
+    image = cv2.imread(image_path)
+    image = autocrop(image)
+    image = resize_image(image)
+    preprocessed, _ = color_adjust(image)
 
+    ### MODEL INFERENCE
+    predictions = generate_segmentation_preds(image, preprocessed)
 
-# DETECT STAFFS IN IMAGE
-logger.info("Detecting staffs")
-## LOADING/PREPROCESSING SEGMENTATION PREDICTIONS
-logger.info("Loading segmentation")
-### IMAGE PREPROCESSING
-image = cv2.imread(IMAGE_PATH)
-image = autocrop(image)
-image = resize_image(image)
-preprocessed, _ = color_adjust(image)
+    ### IMAGE POSTPROCESSING
+    predictions = filter_segmentation_preds(predictions)
+    predictions.staff = make_lines_stronger(predictions.staff)
+    logger.info("Loaded segmentation")
 
-### MODEL INFERENCE
-predictions = generate_segmentation_preds(image, preprocessed)
+    write_debug_image(image, "1_staff.png", binary_map=predictions.staff)
+    write_debug_image(image, "2_symbols.png", binary_map=predictions.symbols)
+    write_debug_image(image, "3_stems_rests.png", binary_map=predictions.stems_rests)
+    write_debug_image(image, "4_notehead.png", binary_map=predictions.notehead)
+    write_debug_image(image, "5_clefs_keys.png", binary_map=predictions.clefs_keys)
 
-### IMAGE POSTPROCESSING
-predictions = filter_segmentation_preds(predictions)
-predictions.staff = make_lines_stronger(predictions.staff)
-logger.info("Loaded segmentation")
+    ## PREDICTING SYMBOLS
+    logger.info("Creating bounds for noteheads")
+    noteheads = create_bounding_ellipses(predictions.notehead)
+    logger.info("Creating bounds for staff_fragments")
+    staff_fragments = create_rotated_bboxes(
+        predictions.staff, skip_merging=True, min_size=(5, 1), max_size=(1000 * 10, 100)
+    )
+    logger.info("Creating bounds for clefs_keys")
+    clefs_keys = create_rotated_bboxes(
+        predictions.clefs_keys, min_size=(20, 40), max_size=(1000, 1000)
+    )
+    logger.info("Creating bounds for accidentals")
+    accidentals = create_rotated_bboxes(
+        predictions.clefs_keys, min_size=(5, 5), max_size=(100, 100)
+    )
+    logger.info("Creating bounds for stems_rests")
+    stems_rests = create_rotated_bboxes(predictions.stems_rests)
+    logger.info("Creating bounds for bar_lines")
+    kernel = np.ones((5, 3), np.uint8)
+    bar_line_img = cv2.dilate(predictions.stems_rests, kernel, iterations=1)
+    bar_lines = create_rotated_bboxes(bar_line_img, skip_merging=True, min_size=(1, 5))
+    symbols = SymbolBoundingBoxes(
+        noteheads, staff_fragments, clefs_keys, accidentals, stems_rests, bar_lines
+    )
+    logger.info("Predicted symbols")
 
-write_debug_image(image, "1_staff.png", binary_map=predictions.staff)
-write_debug_image(image, "2_symbols.png", binary_map=predictions.symbols)
-write_debug_image(image, "3_stems_rests.png", binary_map=predictions.stems_rests)
-write_debug_image(image, "4_notehead.png", binary_map=predictions.notehead)
-write_debug_image(image, "5_clefs_keys.png", binary_map=predictions.clefs_keys)
+    write_debug_image(image, "6_ellipses.png", drawables=noteheads)
+    write_debug_image(image, "7_staff_fragments.png", drawables=staff_fragments)
+    write_debug_image(image, "8_clefs_keys.png", drawables=clefs_keys)
+    write_debug_image(image, "9_accidentals.png", drawables=accidentals)
+    write_debug_image(image, "10_stems_rests.png", drawables=stems_rests)
+    write_debug_image(image, "11_bar_line_img.png", binary_map=bar_line_img)
+    write_debug_image(image, "12_bar_lines.png", drawables=bar_lines)
 
-## PREDICTING SYMBOLS
-logger.info("Creating bounds for noteheads")
-noteheads = create_bounding_ellipses(predictions.notehead)
-logger.info("Creating bounds for staff_fragments")
-staff_fragments = create_rotated_bboxes(
-    predictions.staff, skip_merging=True, min_size=(5, 1), max_size=(1000 * 10, 100)
-)
-logger.info("Creating bounds for clefs_keys")
-clefs_keys = create_rotated_bboxes(
-    predictions.clefs_keys, min_size=(20, 40), max_size=(1000, 1000)
-)
-logger.info("Creating bounds for accidentals")
-accidentals = create_rotated_bboxes(
-    predictions.clefs_keys, min_size=(5, 5), max_size=(100, 100)
-)
-logger.info("Creating bounds for stems_rests")
-stems_rests = create_rotated_bboxes(predictions.stems_rests)
-logger.info("Creating bounds for bar_lines")
-kernel = np.ones((5, 3), np.uint8)
-bar_line_img = cv2.dilate(predictions.stems_rests, kernel, iterations=1)
-bar_lines = create_rotated_bboxes(bar_line_img, skip_merging=True, min_size=(1, 5))
-symbols = SymbolBoundingBoxes(
-    noteheads, staff_fragments, clefs_keys, accidentals, stems_rests, bar_lines
-)
-logger.info("Predicted symbols")
+    ## BREAKING WIDE FRAGMENTS
+    symbols.staff_fragments = break_wide_fragments(symbols.staff_fragments)
+    logger.info(f"Found {len(symbols.staff_fragments)} staff line fragments")
 
-write_debug_image(image, "6_ellipses.png", drawables=noteheads)
-write_debug_image(image, "7_staff_fragments.png", drawables=staff_fragments)
-write_debug_image(image, "8_clefs_keys.png", drawables=clefs_keys)
-write_debug_image(image, "9_accidentals.png", drawables=accidentals)
-write_debug_image(image, "10_stems_rests.png", drawables=stems_rests)
-write_debug_image(image, "11_bar_line_img.png", binary_map=bar_line_img)
-write_debug_image(image, "12_bar_lines.png", drawables=bar_lines)
-
-## BREAKING WIDE FRAGMENTS
-symbols.staff_fragments = break_wide_fragments(symbols.staff_fragments)
-logger.info(f"Found {len(symbols.staff_fragments)} staff line fragments")
-
-write_debug_image(image, "13_staff_fragments.png", drawables=symbols.staff_fragments)
-
-## COMBINING NOTEHEADS WITH STEMS
-noteheads_with_stems = combine_noteheads_with_stems(
-    symbols.noteheads, symbols.stems_rests
-)
-logger.info(f"Found {len(noteheads_with_stems)} noteheads")
-if len(noteheads_with_stems) == 0:
-    raise Exception("No noteheads found")
-
-avg_notehead_height = float(
-    np.median([n.notehead.size[1] for n in noteheads_with_stems])
-)
-logger.info(f"Average notehead height: {avg_notehead_height}")
-
-write_debug_image(image, "14_notes_with_stems.png", drawables=noteheads_with_stems)
-
-## DETECTING BAR LINES
-all_noteheads = [n.notehead for n in noteheads_with_stems]
-all_stems = [n.stem for n in noteheads_with_stems if n.stem is not None]
-bar_lines_or_rests = [
-    line
-    for line in symbols.bar_lines
-    if not line.is_overlapping_with_any(all_noteheads)
-    and not line.is_overlapping_with_any(all_stems)
-]
-
-bar_line_boxes = detect_bar_lines(bar_lines_or_rests, avg_notehead_height)
-logger.info(f"Found {len(bar_line_boxes)} bar lines")
-
-write_debug_image(image, "15_bar_line_boxes.png", drawables=bar_line_boxes)
-
-## DETECTING STAFFS
-staff_anchors = find_staff_anchors(
-    symbols.staff_fragments, symbols.clefs_keys, are_clefs=True
-)
-logger.info(f"Found {len(staff_anchors)} clefs")
-
-possible_other_clefs = predict_other_anchors_from_clefs(
-    staff_anchors, predictions.staff
-)
-logger.info(f"Found {len(possible_other_clefs)} possible other clefs")
-
-staff_anchors.extend(
-    find_staff_anchors(symbols.staff_fragments, possible_other_clefs, are_clefs=True)
-)
-staff_anchors.extend(
-    find_staff_anchors(symbols.staff_fragments, bar_line_boxes, are_clefs=False)
-)
-
-staff_anchors = filter_unusual_anchors(staff_anchors)
-logger.info(f"Found {len(staff_anchors)} staff anchors")
-
-write_debug_image(image, "16_staff_anchors.png", drawables=staff_anchors)
-
-raw_staffs_with_possible_dupes = find_raw_staffs_by_connecting_fragments(
-    staff_anchors, symbols.staff_fragments
-)
-logger.info(f"Found {len(raw_staffs_with_possible_dupes)} staffs")
-
-raw_staffs = remove_duplicate_staffs(raw_staffs_with_possible_dupes)
-if len(raw_staffs_with_possible_dupes) != len(raw_staffs):
-    logger.info(
-        f"Removed {len(raw_staffs_with_possible_dupes) - len(raw_staffs)} duplicate staffs"
+    write_debug_image(
+        image, "13_staff_fragments.png", drawables=symbols.staff_fragments
     )
 
-write_debug_image(image, "17_raw_staffs.png", drawables=raw_staffs)
+    ## COMBINING NOTEHEADS WITH STEMS
+    noteheads_with_stems = combine_noteheads_with_stems(
+        symbols.noteheads, symbols.stems_rests
+    )
+    logger.info(f"Found {len(noteheads_with_stems)} noteheads")
+    if len(noteheads_with_stems) == 0:
+        raise Exception("No noteheads found")
 
-staffs = resample_staffs(raw_staffs)
-staffs = filter_edge_of_vision(staffs, image.shape)
-staffs = sorted(staffs, key=lambda staff: staff.min_y)  # sort top to bottom
-if len(staffs) == 0:
-    raise Exception("No staffs found")
+    avg_notehead_height = float(
+        np.median([n.notehead.size[1] for n in noteheads_with_stems])
+    )
+    logger.info(f"Average notehead height: {avg_notehead_height}")
 
-global_unit_size = np.mean([staff.average_unit_size for staff in staffs])
+    write_debug_image(image, "14_notes_with_stems.png", drawables=noteheads_with_stems)
 
-write_debug_image(image, "18_staffs.png", drawables=staffs)
+    ## DETECTING BAR LINES
+    all_noteheads = [n.notehead for n in noteheads_with_stems]
+    all_stems = [n.stem for n in noteheads_with_stems if n.stem is not None]
+    bar_lines_or_rests = [
+        line
+        for line in symbols.bar_lines
+        if not line.is_overlapping_with_any(all_noteheads)
+        and not line.is_overlapping_with_any(all_stems)
+    ]
 
-## ADDING BAR LINES TO STAFFS
-bar_lines_found = add_bar_lines_to_staffs(staffs, bar_line_boxes)
-logger.info(f"Found {len(bar_lines_found)} bar lines")
+    bar_line_boxes = detect_bar_lines(bar_lines_or_rests, avg_notehead_height)
+    logger.info(f"Found {len(bar_line_boxes)} bar lines")
 
-write_debug_image(image, "19_bar_lines.png", drawables=bar_lines_found)
+    write_debug_image(image, "15_bar_line_boxes.png", drawables=bar_line_boxes)
 
-## ADDING RESTS TO STAFFS
-possible_rests = [
-    rest
-    for rest in bar_lines_or_rests
-    if not rest.is_overlapping_with_any(bar_line_boxes)
-]
-rests = add_rests_to_staffs(staffs, possible_rests)
-logger.info(f"Found {len(rests)} rests")
+    ## DETECTING STAFFS
+    staff_anchors = find_staff_anchors(
+        symbols.staff_fragments, symbols.clefs_keys, are_clefs=True
+    )
+    logger.info(f"Found {len(staff_anchors)} clefs")
 
-## PREPARING BRACES AND DOTS
-all_classified = predictions.notehead + predictions.clefs_keys + predictions.stems_rests
-brace_dot_img = prepare_brace_dot_image(predictions.symbols, predictions.staff)
-brace_dot = create_rotated_bboxes(brace_dot_img, skip_merging=True, max_size=(100, -1))
+    possible_other_clefs = predict_other_anchors_from_clefs(
+        staff_anchors, predictions.staff
+    )
+    logger.info(f"Found {len(possible_other_clefs)} possible other clefs")
 
-write_debug_image(image, "20_brace_dot_img.png", binary_map=brace_dot_img)
+    staff_anchors.extend(
+        find_staff_anchors(
+            symbols.staff_fragments, possible_other_clefs, are_clefs=True
+        )
+    )
+    staff_anchors.extend(
+        find_staff_anchors(symbols.staff_fragments, bar_line_boxes, are_clefs=False)
+    )
 
-## ADDING NOTES TO STAFFS
-notes = add_notes_to_staffs(staffs, noteheads_with_stems, predictions.notehead)
+    staff_anchors = filter_unusual_anchors(staff_anchors)
+    logger.info(f"Found {len(staff_anchors)} staff anchors")
 
-write_debug_image(image, "21_notes_on_staffs.png", drawables=notes)
+    write_debug_image(image, "16_staff_anchors.png", drawables=staff_anchors)
 
-## ADDING ACCIDENTALS TO STAFFS
-accidentals = add_accidentals_to_staffs(staffs, symbols.accidentals)
-logger.info(f"Found {len(accidentals)} accidentals")
+    raw_staffs_with_possible_dupes = find_raw_staffs_by_connecting_fragments(
+        staff_anchors, symbols.staff_fragments
+    )
+    logger.info(f"Found {len(raw_staffs_with_possible_dupes)} staffs")
 
-write_debug_image(image, "22_accidentals.png", drawables=accidentals)
+    raw_staffs = remove_duplicate_staffs(raw_staffs_with_possible_dupes)
+    if len(raw_staffs_with_possible_dupes) != len(raw_staffs):
+        logger.info(
+            f"Removed {len(raw_staffs_with_possible_dupes) - len(raw_staffs)} duplicate staffs"
+        )
 
-## FINDING BRACES/BRACKETS/GRAND STAFF LINES
-multi_staffs = find_braces_brackets_and_grand_staff_lines(staffs, brace_dot)
-logger.info(
-    f"Found {len(multi_staffs)} connected staffs (after merging grand staffs, multiple voices): "
-    + f"{[len(staff.staffs) for staff in multi_staffs]}"
-)
+    write_debug_image(image, "17_raw_staffs.png", drawables=raw_staffs)
 
-write_debug_image(image, "23_multi_staffs.png", drawables=multi_staffs)
+    staffs = resample_staffs(raw_staffs)
+    staffs = filter_edge_of_vision(staffs, image.shape)
+    staffs = sorted(staffs, key=lambda staff: staff.min_y)  # sort top to bottom
+    if len(staffs) == 0:
+        raise Exception("No staffs found")
 
-# PARSE STAFFS (RUN TROMR)
-result_staffs = parse_staffs(multi_staffs, predictions.preprocessed)
+    global_unit_size = np.mean([staff.average_unit_size for staff in staffs])
 
-# MAINTAIN ACCIDENTALS
-result_staffs = maintain_accidentals(result_staffs)
+    write_debug_image(image, "18_staffs.png", drawables=staffs)
+
+    ## ADDING BAR LINES TO STAFFS
+    bar_lines_found = add_bar_lines_to_staffs(staffs, bar_line_boxes)
+    logger.info(f"Found {len(bar_lines_found)} bar lines")
+
+    write_debug_image(image, "19_bar_lines.png", drawables=bar_lines_found)
+
+    ## ADDING RESTS TO STAFFS
+    possible_rests = [
+        rest
+        for rest in bar_lines_or_rests
+        if not rest.is_overlapping_with_any(bar_line_boxes)
+    ]
+    rests = add_rests_to_staffs(staffs, possible_rests)
+    logger.info(f"Found {len(rests)} rests")
+
+    ## PREPARING BRACES AND DOTS
+    all_classified = (
+        predictions.notehead + predictions.clefs_keys + predictions.stems_rests
+    )
+    brace_dot_img = prepare_brace_dot_image(predictions.symbols, predictions.staff)
+    brace_dot = create_rotated_bboxes(
+        brace_dot_img, skip_merging=True, max_size=(100, -1)
+    )
+
+    write_debug_image(image, "20_brace_dot_img.png", binary_map=brace_dot_img)
+
+    ## ADDING NOTES TO STAFFS
+    notes = add_notes_to_staffs(staffs, noteheads_with_stems, predictions.notehead)
+
+    write_debug_image(image, "21_notes_on_staffs.png", drawables=notes)
+
+    ## ADDING ACCIDENTALS TO STAFFS
+    accidentals = add_accidentals_to_staffs(staffs, symbols.accidentals)
+    logger.info(f"Found {len(accidentals)} accidentals")
+
+    write_debug_image(image, "22_accidentals.png", drawables=accidentals)
+
+    ## FINDING BRACES/BRACKETS/GRAND STAFF LINES
+    multi_staffs = find_braces_brackets_and_grand_staff_lines(staffs, brace_dot)
+    logger.info(
+        f"Found {len(multi_staffs)} connected staffs (after merging grand staffs, multiple voices): "
+        + f"{[len(staff.staffs) for staff in multi_staffs]}"
+    )
+
+    write_debug_image(image, "23_multi_staffs.png", drawables=multi_staffs)
+
+    # PARSE STAFFS (RUN TROMR)
+    result_staffs = parse_staffs(multi_staffs, predictions.preprocessed)
+
+    # MAINTAIN ACCIDENTALS
+    result_staffs = maintain_accidentals(result_staffs)
+
+    if idx > 0:
+        result_staffs[0].measures[0].is_new_page = True
+    pages.append(Page(result_staffs))
+
+# MERGE STAFFS ACROSS PAGES BY VOICE
+total_staffs = merge_staffs_across_pages(pages)
 
 # GENERATE MUSICXML
 logger.info("Writing XML")
-xml = generate_xml(result_staffs)
-xml.write(xml_path)
+xml = generate_xml(total_staffs)
+xml.write(xml_path)  # type: ignore
 logger.info(f"Result was written to {xml_path}")

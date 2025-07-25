@@ -12,6 +12,7 @@ from app.classes.results import (
     ResultChord,
     move_pitch_to_clef,
     ResultTimeSignature,
+    Page,
 )
 from app.utils.constants import NDArray
 from app.detection.staff_dewarp import StaffDewarping, dewarp_staff_image
@@ -424,7 +425,7 @@ def parse_staffs(staffs: list[MultiStaff], image: NDArray) -> list[ResultStaff]:
 
     for voice in range(total_voices):
         staffs_for_voice = [staff.staffs[voice] for staff in staffs]
-        result_for_voice = []
+        result_for_voice: list[ResultStaff] = []
         for staff_idx, staff in enumerate(staffs_for_voice):
             result_staff = parse_staff_image(ranges, i, staff, image)
 
@@ -449,3 +450,18 @@ def parse_staffs(staffs: list[MultiStaff], image: NDArray) -> list[ResultStaff]:
         voices.append(merge_and_clean(result_for_voice, force_single_clef_type))
 
     return voices
+
+
+def merge_staffs_across_pages(pages: list[Page]) -> list[ResultStaff]:
+    """
+    Merges staffs by voice across pages.
+    """
+    voices_by_index = []
+    num_voices = len(pages[0].staffs)  # should be 2 for piano
+
+    for voice_idx in range(num_voices):
+        staffs_for_voice = [page.staffs[voice_idx] for page in pages]
+        merged_staff = merge_and_clean(staffs_for_voice, num_voices == 1)
+        voices_by_index.append(merged_staff)
+
+    return voices_by_index

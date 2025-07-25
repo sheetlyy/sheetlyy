@@ -9,6 +9,7 @@ from app.classes.results import (
     ResultNote,
     ResultStaff,
     ResultTimeSignature,
+    Page,
 )
 from app.utils.constants import DURATION_OF_QUARTER
 
@@ -42,10 +43,10 @@ def build_part_list(staffs: int) -> mxl.XMLPartList:
         score_part.add_child(score_instrument)
 
         midi_instrument = mxl.XMLMidiInstrument(id=f"{part_id}-I1")
-        midi_instrument.add_child(mxl.XMLMidiChannel(value_=1))
-        midi_instrument.add_child(mxl.XMLMidiProgram(value_=1))
-        midi_instrument.add_child(mxl.XMLVolume(value_=100))
-        midi_instrument.add_child(mxl.XMLPan(value_=0))
+        midi_instrument.add_child(mxl.XMLMidiChannel(value_=1))  # type: ignore
+        midi_instrument.add_child(mxl.XMLMidiProgram(value_=1))  # type: ignore
+        midi_instrument.add_child(mxl.XMLVolume(value_=100))  # type: ignore
+        midi_instrument.add_child(mxl.XMLPan(value_=0))  # type: ignore
         score_part.add_child(midi_instrument)
 
         part_list.add_child(score_part)
@@ -63,10 +64,10 @@ def build_or_get_attributes(measure: mxl.XMLMeasure) -> mxl.XMLAttributes:
 
 
 def build_clef(model_clef: ResultClef, attributes: mxl.XMLAttributes) -> None:
-    attributes.add_child(mxl.XMLDivisions(value_=DURATION_OF_QUARTER))
+    attributes.add_child(mxl.XMLDivisions(value_=DURATION_OF_QUARTER))  # type: ignore
 
     key = mxl.XMLKey()
-    fifth = mxl.XMLFifths(value_=model_clef.circle_of_fifth)
+    fifth = mxl.XMLFifths(value_=model_clef.circle_of_fifth)  # type: ignore
     attributes.add_child(key)
     key.add_child(fifth)
 
@@ -74,7 +75,7 @@ def build_clef(model_clef: ResultClef, attributes: mxl.XMLAttributes) -> None:
     attributes.add_child(clef)
 
     clef.add_child(mxl.XMLSign(value_=model_clef.clef_type.sign))
-    clef.add_child(mxl.XMLLine(value_=model_clef.clef_type.line))
+    clef.add_child(mxl.XMLLine(value_=model_clef.clef_type.line))  # type: ignore
 
 
 def build_time_signature(
@@ -89,9 +90,9 @@ def build_time_signature(
 def build_rest(model_rest: ResultChord) -> mxl.XMLNote:
     note = mxl.XMLNote()
     note.add_child(mxl.XMLRest(measure="yes"))
-    note.add_child(mxl.XMLDuration(value_=model_rest.duration.duration))
+    note.add_child(mxl.XMLDuration(value_=model_rest.duration.duration))  # type: ignore
     note.add_child(mxl.XMLType(value_=model_rest.duration.duration_name))
-    note.add_child(mxl.XMLStaff(value_=1))
+    note.add_child(mxl.XMLStaff(value_=1))  # type: ignore
     return note
 
 
@@ -104,24 +105,24 @@ def build_note(model_note: ResultNote, is_chord=False) -> mxl.XMLNote:
     model_pitch = model_note.pitch
     pitch.add_child(mxl.XMLStep(value_=model_pitch.step))
     if model_pitch.alter is not None:
-        pitch.add_child(mxl.XMLAlter(value_=model_pitch.alter))
+        pitch.add_child(mxl.XMLAlter(value_=model_pitch.alter))  # type: ignore
     else:
-        pitch.add_child(mxl.XMLAlter(value_=0))
-    pitch.add_child(mxl.XMLOctave(value_=model_pitch.octave))
+        pitch.add_child(mxl.XMLAlter(value_=0))  # type: ignore
+    pitch.add_child(mxl.XMLOctave(value_=model_pitch.octave))  # type: ignore
     note.add_child(pitch)
 
     model_duration = model_note.duration
     note.add_child(mxl.XMLType(value_=model_duration.duration_name))
-    note.add_child(mxl.XMLDuration(value_=model_duration.duration))
-    note.add_child(mxl.XMLStaff(value_=1))
+    note.add_child(mxl.XMLDuration(value_=model_duration.duration))  # type: ignore
+    note.add_child(mxl.XMLStaff(value_=1))  # type: ignore
     note.add_child(mxl.XMLVoice(value_="1"))
 
     if model_duration.modifier == DurationModifier.DOT:
         note.add_child(mxl.XMLDot())
     elif model_duration.modifier == DurationModifier.TRIPLET:
         time_modification = mxl.XMLTimeModification()
-        time_modification.add_child(mxl.XMLActualNotes(value_=3))
-        time_modification.add_child(mxl.XMLNormalNotes(value_=2))
+        time_modification.add_child(mxl.XMLActualNotes(value_=3))  # type: ignore
+        time_modification.add_child(mxl.XMLNormalNotes(value_=2))  # type: ignore
         note.add_child(time_modification)
 
     return note
@@ -142,29 +143,52 @@ def build_chord(chord: ResultChord) -> list[mxl.XMLNote]:
     return build_note_group(chord)
 
 
-def build_measure(measure: ResultMeasure, measure_num: int) -> mxl.XMLMeasure:
+def build_measure(
+    measure: ResultMeasure,
+    measure_num: int,
+    prev_clef: Optional[ResultClef],
+    prev_time_sig: Optional[ResultTimeSignature],
+) -> tuple[mxl.XMLMeasure, Optional[ResultClef], Optional[ResultTimeSignature]]:
     result = mxl.XMLMeasure(number=str(measure_num))
     is_first_measure = measure_num == 1
-    if measure.is_new_line and not is_first_measure:
+    is_new_system = measure.is_new_page or measure.is_new_line
+
+    if measure.is_new_page:
+        result.add_child(mxl.XMLPrint(new_page="yes"))
+    elif measure.is_new_line and not is_first_measure:
         result.add_child(mxl.XMLPrint(new_system="yes"))
+
     for symbol in measure.symbols:
         if isinstance(symbol, ResultClef):
-            attributes = build_or_get_attributes(result)
-            build_clef(symbol, attributes)
+            if is_first_measure or is_new_system or symbol != prev_clef:
+                attributes = build_or_get_attributes(result)
+                build_clef(symbol, attributes)
+                prev_clef = symbol
+
         elif isinstance(symbol, ResultTimeSignature):
-            attributes = build_or_get_attributes(result)
-            build_time_signature(symbol, attributes)
+            if is_first_measure or is_new_system or symbol != prev_time_sig:
+                attributes = build_or_get_attributes(result)
+                build_time_signature(symbol, attributes)
+                prev_time_sig = symbol
+
         elif isinstance(symbol, ResultChord):
             for element in build_chord(symbol):
                 result.add_child(element)
-    return result
+
+    return result, prev_clef, prev_time_sig
 
 
 def build_part(staff: ResultStaff, index: int) -> mxl.XMLPart:
     part = mxl.XMLPart(id=get_part_id(index))
     measure_num = 1
+    prev_clef: Optional[ResultClef] = None
+    prev_time_sig: Optional[ResultTimeSignature] = None
+
     for measure in staff.measures:
-        part.add_child(build_measure(measure, measure_num))
+        xml_measure, prev_clef, prev_time_sig = build_measure(
+            measure, measure_num, prev_clef, prev_time_sig
+        )
+        part.add_child(xml_measure)
         measure_num += 1
     return part
 
