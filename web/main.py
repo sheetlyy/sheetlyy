@@ -1,13 +1,15 @@
 from typing import Union
 from fastapi import FastAPI
-from worker.utils.constants import NUMBER_OF_LINES_ON_A_STAFF
+
+# from worker.inference.inference import run_inference
 
 app = FastAPI()
 
 
 @app.get("/")
 def read_root():
-    return {"Hello": NUMBER_OF_LINES_ON_A_STAFF}
+    # run_inference(["worker/test_imgs/img1.JPG", "worker/test_imgs/img2.JPG"])
+    return {"Hello": "world"}
 
 
 @app.get("/items/{item_id}")
