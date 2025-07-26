@@ -7,7 +7,7 @@ app = FastAPI()
 
 
 @app.get("/")
-def read_root():
+def index():
     # run_inference(["worker/test_imgs/img1.JPG", "worker/test_imgs/img2.JPG"])
     return {"Hello": "world"}
 
