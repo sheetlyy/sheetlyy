@@ -5,3 +5,13 @@ body {
   color: #333;
   background-color: #f4f4f4;
 }
+
+.htmx-indicator {
+  display: none;
+}
+.htmx-request .htmx-indicator {
+  display: inline;
+}
+/* .htmx-request.htmx-indicator {
+  display: inline;
+} */

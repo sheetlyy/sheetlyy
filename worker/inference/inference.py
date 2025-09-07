@@ -3,7 +3,8 @@ import cv2
 import numpy as np
 
 from worker.utils.download import download_models
-from worker.utils.image_preprocessing import autocrop, resize_image, color_adjust
+from worker.utils.constants import NDArray
+from worker.utils.image_preprocessing import color_adjust
 from worker.segmentation.inference import generate_segmentation_preds
 from worker.utils.image_postprocessing import (
     filter_segmentation_preds,
@@ -41,22 +42,26 @@ from worker.classes.results import Page
 logger = logging.getLogger(__name__)
 
 
-def run_inference(image_paths: list[str]) -> None:
+def run_inference(image_arrs: list[NDArray]) -> None:
     # download models
     download_models()
 
     xml_path = "result.musicxml"
     pages: list[Page] = []
 
-    for idx, image_path in enumerate(image_paths):
+    for idx, image_arr in enumerate(image_arrs):
         # DETECT STAFFS IN IMAGE
         logger.info("Detecting staffs")
         ## LOADING/PREPROCESSING SEGMENTATION PREDICTIONS
         logger.info("Loading segmentation")
         ### IMAGE PREPROCESSING
-        image = cv2.imread(image_path)
-        image = autocrop(image)
-        image = resize_image(image)
+        # image = cv2.imread(image_path)
+        # image = autocrop(image)
+        # image = resize_image(image)
+
+        # image = preprocess_image_from_bytes(image_bytes)
+
+        image = image_arr.copy()
         preprocessed, _ = color_adjust(image)
 
         ### MODEL INFERENCE

@@ -2,10 +2,30 @@
 
 A web app for converting photos of sheet music into MusicXML files
 
-## How to use
+## How to run
 
-`uv run -- litestar --app=web.app:app run --reload`
+### Web server
+
+```
+uv run -- litestar --app=web.app:app run --reload
+```
+
+### Redis
+
+```
+sudo docker run -d --name redis -p 6379:6379 redis:<version>
+```
+
+(version: 8.2)
+
+### RQ
+
+```
+rq worker-pool -n 4
+```
 
 ## How to test
 
-`uv run pytest`
+```
+uv run pytest
+```

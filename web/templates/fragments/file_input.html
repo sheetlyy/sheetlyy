@@ -1,6 +1,7 @@
 <label for="file{{ index }}">File {{ index }}:</label>
 <input id="file{{ index }}" name="{{ index }}" type="file" />
 
+{% if not is_max_reached %}
 <button
   type="button"
   hx-get="/add-file"
@@ -9,3 +10,4 @@
 >
   Add more files
 </button>
+{% endif %}

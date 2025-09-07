@@ -1,7 +1,13 @@
-<form id="form" hx-post="/upload" hx-encoding="multipart/form-data">
+<form
+  id="form"
+  hx-post="/upload"
+  hx-swap="outerHTML"
+  hx-encoding="multipart/form-data"
+>
   <p>Choose images to upload:</p>
 
   {% include 'fragments/file_input.html' %}
 
   <button type="submit">Upload</button>
+  <p class="htmx-indicator">Uploading...</p>
 </form>

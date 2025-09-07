@@ -6,20 +6,21 @@ from litestar.datastructures import UploadFile
 from litestar.enums import RequestEncodingType
 from litestar.params import Body
 from litestar.plugins.htmx import HTMXTemplate
-# from worker.inference.inference import run_inference
+
+from worker.utils.image_preprocessing import preprocess_image_from_bytes
+from worker.inference.inference import run_inference
 
 
 @get("/", sync_to_thread=False)
 def index() -> Template:
-    # run_inference(["worker/test_imgs/img1.JPG", "worker/test_imgs/img2.JPG"])
-
     context = {"index": "1"}
     return HTMXTemplate(template_name="base.html", context=context)
 
 
 @get("/add-file", sync_to_thread=False)
 def add_file_input(index: int) -> Template:
-    context = {"index": index + 1}
+    is_max_reached = index + 1 >= 10
+    context = {"index": index + 1, "is_max_reached": is_max_reached}
     return HTMXTemplate(template_name="fragments/file_input.html", context=context)
 
 
@@ -27,15 +28,20 @@ def add_file_input(index: int) -> Template:
 async def handle_file_uploads(
     request: Annotated[Request, Body(media_type=RequestEncodingType.MULTI_PART)],
 ) -> Template:
+    # run_inference(["worker/test_imgs/img1.JPG", "worker/test_imgs/img2.JPG"])
+
     form = await request.form()
 
-    ordered_files: list[tuple[int, UploadFile]] = sorted(
-        [(int(input_name), form[input_name]) for input_name in form],
-        key=lambda x: x[0],
-    )
-    files = [(file.filename, await file.read()) for _, file in ordered_files]
+    ordered_files: list[UploadFile] = [
+        form[file_idx] for file_idx in sorted(form, key=int)
+    ]
 
-    context = {"filenames": [file[0] for file in files]}
+    image_arrs = [
+        preprocess_image_from_bytes(await file.read()) for file in ordered_files
+    ]
+    # run_inference(image_arrs)
+
+    context = {"filenames": [arr.size for arr in image_arrs]}
     return HTMXTemplate(template_name="fragments/uploaded.html", context=context)
 
 

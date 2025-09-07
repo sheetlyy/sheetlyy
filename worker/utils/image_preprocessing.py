@@ -57,7 +57,11 @@ def autocrop(img: NDArray) -> NDArray:
     # convert to grayscale & find most frequent intensity value
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     hist = cv2.calcHist(
-        [gray], [0], None, [256], [0, 256]  # freqs of each intensity value
+        [gray],
+        [0],
+        None,
+        [256],
+        [0, 256],  # freqs of each intensity value
     )
     dominant_intensity_val = max(enumerate(hist), key=lambda x: x[1])[0]
 
@@ -195,3 +199,15 @@ def color_adjust(image: NDArray, block_size: int = 40) -> tuple[NDArray, NDArray
     except Exception as e:
         logger.error(f"Error while adjusting color of image: {str(e)}")
         return image, image
+
+
+def preprocess_image_from_bytes(image_bytes: bytes) -> NDArray:
+    # image = cv2.imread(image_path)
+
+    arr = np.frombuffer(image_bytes, np.uint8)
+    image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+    image = autocrop(image)
+    image = resize_image(image)
+
+    return image
