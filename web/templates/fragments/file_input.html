@@ -1,0 +1,11 @@
+<label for="file{{ index }}">File {{ index }}:</label>
+<input id="file{{ index }}" name="{{ index }}" type="file" />
+
+<button
+  type="button"
+  hx-get="/add-file"
+  hx-swap="outerHTML"
+  hx-vals='{"index": "{{ index }}"}'
+>
+  Add more files
+</button>

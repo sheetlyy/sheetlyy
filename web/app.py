@@ -1,21 +1,35 @@
-from litestar import Litestar, MediaType, get
-# from worker.inference.inference import run_inference
+from pathlib import Path
+
+from litestar import Litestar
+from litestar.static_files import create_static_files_router
+from litestar.plugins.htmx import HTMXPlugin
+from litestar.contrib.jinja import JinjaTemplateEngine
+from litestar.template.config import TemplateConfig
+
+from web.routes import (
+    health_check,
+    index,
+    add_file_input,
+    handle_file_uploads,
+    get_book,
+)
 
 
-@get("/", sync_to_thread=False)
-def index() -> str:
-    # run_inference(["worker/test_imgs/img1.JPG", "worker/test_imgs/img2.JPG"])
-    return "Hello, world!"
+DEBUG = True
+BASE_DIR = Path(__file__).parent
 
-
-@get("/books/{book_id:int}", sync_to_thread=False)
-def get_book(book_id: int) -> dict[str, int]:
-    return {"book_id": book_id}
-
-
-@get(path="/health-check", media_type=MediaType.TEXT, sync_to_thread=False)
-def health_check() -> str:
-    return "healthy"
-
-
-app = Litestar([index, get_book, health_check])
+app = Litestar(
+    route_handlers=[
+        create_static_files_router(path="/static", directories=[BASE_DIR / "static"]),
+        index,
+        add_file_input,
+        handle_file_uploads,
+        get_book,
+        health_check,
+    ],
+    debug=DEBUG,
+    plugins=[HTMXPlugin()],
+    template_config=TemplateConfig(
+        directory=BASE_DIR / "templates", engine=JinjaTemplateEngine
+    ),
+)
