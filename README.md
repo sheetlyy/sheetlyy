@@ -21,7 +21,7 @@ sudo docker run -d --name redis -p 6379:6379 redis:<version>
 ### RQ
 
 ```
-rq worker-pool -n 4
+rq worker-pool -n 2
 ```
 
 ## How to test
