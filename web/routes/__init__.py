@@ -4,4 +4,5 @@ from web.routes.routes import (
     add_file_input,
     handle_file_uploads,
     get_status,
+    download_file,
 )

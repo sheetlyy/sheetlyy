@@ -2,11 +2,12 @@ import os
 from typing import Annotated
 
 from litestar import get, post, Request
-from litestar.response import Template
+from litestar.response import Template, Response
 from litestar.datastructures import UploadFile
 from litestar.enums import RequestEncodingType
 from litestar.params import Body
 from litestar.plugins.htmx import HTMXTemplate
+from litestar.exceptions import HTTPException
 
 from redis import Redis
 from rq import Queue
@@ -38,11 +39,20 @@ def add_file_input(index: int) -> Template:
 
 
 import time
+import io
+from PIL import Image
 
 
 def simulate_ml():
     time.sleep(10)
-    return "cat"
+    image = Image.new(mode="RGB", size=(100, 100), color="blue")
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    buffer.seek(0)
+
+    file_bytes = buffer.read()
+    return {"filename": "result.png", "file_bytes": file_bytes}
 
 
 @post("/upload")
@@ -72,19 +82,34 @@ def get_status(job_id: str) -> Template:
 
     is_failed = any([job.is_failed, job.is_stopped, job.is_canceled])
     if job.is_finished:
-        status = "Job complete"
-        result = job.return_value()
+        status = "Job complete, downloading..."
     elif is_failed:
-        status = "Failed to complete job"
-        result = None
+        status = "Failed to complete job."
     else:
         status = "Processing..."
-        result = None
 
     is_complete = job.is_finished or is_failed
-    context = {"status": status, "result": result}
+    context = {"status": status, "is_finished": job.is_finished, "job_id": job_id}
     return HTMXTemplate(
         template_name="fragments/status.html",
         context=context,
         status_code=286 if is_complete else 200,  # 286 stops htmx polling
+    )
+
+
+@get("/download/{job_id:str}", sync_to_thread=False)
+def download_file(job_id: str) -> Response:
+    job = Job.fetch(id=job_id, connection=redis_conn)
+
+    result = job.return_value()
+    if result is None:
+        raise HTTPException(detail="File not found", status_code=404)
+
+    file_bytes = result["file_bytes"]
+    filename = result["filename"]
+
+    return Response(
+        content=file_bytes,
+        media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

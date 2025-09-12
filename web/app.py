@@ -12,6 +12,7 @@ from web.routes import (
     add_file_input,
     handle_file_uploads,
     get_status,
+    download_file,
 )
 
 
@@ -25,6 +26,7 @@ app = Litestar(
         add_file_input,
         handle_file_uploads,
         get_status,
+        download_file,
         health_check,
     ],
     debug=DEBUG,

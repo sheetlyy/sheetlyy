@@ -193,7 +193,7 @@ def build_part(staff: ResultStaff, index: int) -> mxl.XMLPart:
     return part
 
 
-def generate_xml(staffs: list[ResultStaff]) -> mxl.XMLElement:
+def generate_xml(staffs: list[ResultStaff]) -> mxl.XMLScorePartwise:
     root = mxl.XMLScorePartwise()
     root.add_child(build_work())
     root.add_child(mxl.XMLDefaults())
