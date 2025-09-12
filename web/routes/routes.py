@@ -13,7 +13,7 @@ from redis import Redis
 from rq import Queue
 from rq.job import Job
 from worker.utils.image_preprocessing import preprocess_image_from_bytes
-from worker.inference.inference import run_inference
+from worker.main import run_inference
 
 
 redis_conn = Redis(
