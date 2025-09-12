@@ -22,7 +22,7 @@ redis_conn = Redis(
     password=os.getenv("REDIS_PASSWORD"),
     ssl=os.getenv("REDIS_SSL", "false") == "true",
 )
-q = Queue(connection=redis_conn)
+q = Queue(connection=redis_conn, default_timeout=60 * 30)
 
 
 @get("/", sync_to_thread=False)
@@ -38,21 +38,7 @@ def add_file_input(index: int) -> Template:
     return HTMXTemplate(template_name="fragments/file_input.html", context=context)
 
 
-import time
-import io
-from PIL import Image
-
-
-def simulate_ml():
-    time.sleep(10)
-    image = Image.new(mode="RGB", size=(100, 100), color="blue")
-
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    buffer.seek(0)
-
-    file_bytes = buffer.read()
-    return {"filename": "result.png", "file_bytes": file_bytes}
+# TODO: 100MB limit,
 
 
 @post("/upload")
@@ -70,7 +56,7 @@ async def handle_file_uploads(
     ]
     # run_inference(image_arrs)
 
-    job = q.enqueue(simulate_ml)
+    job = q.enqueue(run_inference, image_arrs)
 
     context = {"filenames": [arr.size for arr in image_arrs], "job_id": job.id}
     return HTMXTemplate(template_name="fragments/uploaded.html", context=context)
@@ -110,6 +96,6 @@ def download_file(job_id: str) -> Response:
 
     return Response(
         content=file_bytes,
-        media_type="image/png",
+        media_type="application/vnd.recordare.musicxml+xml",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

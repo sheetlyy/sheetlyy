@@ -1,4 +1,4 @@
-<div hx-get="/status/{{ job_id }}" hx-swap="innerHTML" hx-trigger="every 2s">
+<div hx-get="/status/{{ job_id }}" hx-swap="innerHTML" hx-trigger="every 7s">
   Waiting for status... {% for filename in filenames %}
   <p>Name: {{ filename }}</p>
   {% endfor %}

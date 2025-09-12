@@ -1,6 +1,7 @@
 import logging
 import cv2
 import numpy as np
+from typing import Any
 
 from worker.utils.download import download_models
 from worker.utils.constants import NDArray
@@ -42,7 +43,7 @@ from worker.classes.results import Page
 logger = logging.getLogger(__name__)
 
 
-def run_inference(image_arrs: list[NDArray]) -> None:
+def run_inference(image_arrs: list[NDArray]) -> dict[str, Any]:
     # download models
     download_models()
 
@@ -269,5 +270,13 @@ def run_inference(image_arrs: list[NDArray]) -> None:
     # GENERATE MUSICXML
     logger.info("Writing XML")
     xml = generate_xml(total_staffs)
-    xml.write(xml_path)  # type: ignore
-    logger.info(f"Result was written to {xml_path}")
+
+    xml_string = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
+    xml_string += xml.to_string()
+    file_bytes = xml_string.encode("utf-8")
+
+    logger.info(f"Writing results to {xml_path}")
+    return {
+        "filename": xml_path,
+        "file_bytes": file_bytes,
+    }

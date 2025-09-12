@@ -34,4 +34,5 @@ app = Litestar(
     template_config=TemplateConfig(
         directory=BASE_DIR / "templates", engine=JinjaTemplateEngine
     ),
+    request_max_body_size=100_000_000,
 )
