@@ -1,10 +1,10 @@
+import io
 import logging
 import cv2
 import numpy as np
 from typing import Any
 
 from worker.utils.download import download_models
-from worker.utils.constants import NDArray
 from worker.utils.image_preprocessing import color_adjust
 from worker.segmentation.inference import generate_segmentation_preds
 from worker.utils.image_postprocessing import (
@@ -47,12 +47,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run_inference(image_arrs: list[NDArray]) -> dict[str, Any]:
+def run_inference(image_bytes: list[bytes]) -> dict[str, Any]:
     # download models
     download_models()
 
     xml_path = "result.musicxml"
     pages: list[Page] = []
+
+    image_arrs = [np.load(io.BytesIO(bytes)) for bytes in image_bytes]
 
     for idx, image_arr in enumerate(image_arrs):
         # DETECT STAFFS IN IMAGE
@@ -277,10 +279,10 @@ def run_inference(image_arrs: list[NDArray]) -> dict[str, Any]:
 
     xml_string = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
     xml_string += xml.to_string()
-    file_bytes = xml_string.encode("utf-8")
+    file_data = xml_string.encode("utf-8")
 
     logger.info(f"Writing results to {xml_path}")
     return {
         "filename": xml_path,
-        "file_bytes": file_bytes,
+        "file_data": file_data,
     }

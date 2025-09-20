@@ -1,12 +1,11 @@
 <form
-  id="form"
+  id="upload-form"
   hx-post="/upload"
   hx-swap="outerHTML"
   hx-encoding="multipart/form-data"
 >
-  <p>Choose images to upload:</p>
-
-  {% include 'fragments/file_input.html' %}
+  <label for="files">Select files to upload:</label>
+  <input id="files" type="file" name="files[]" multiple />
 
   <button type="submit">Upload</button>
   <p class="htmx-indicator">Uploading...</p>

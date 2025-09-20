@@ -1,0 +1,34 @@
+<div id="submit-form-container">
+  <form
+    class="sortable"
+    id="submit-form"
+    hx-post="/submit/{{ upload_id }}"
+    hx-swap="outerHTML"
+    hx-target="#submit-form-container"
+    hx-indicator="#submitting"
+  >
+    {% for file_id, info in files %}
+    <div>
+      <input type="hidden" name="file" value="{{ file_id }}" />
+      <img
+        src="data:{{ info['content_type'] }};base64,{{ info['img_b64'] }}"
+        width="150"
+      />
+      {{ info['filename'] }}
+    </div>
+    {% endfor %}
+  </form>
+  <button form="submit-form" type="submit">Submit</button>
+  <p id="submitting" class="htmx-indicator">Submitting...</p>
+  <script>
+    htmx.onLoad(function (content) {
+      let sortables = content.querySelectorAll(".sortable");
+      for (let sortable of sortables) {
+        let sortableInstance = new Sortable(sortable, {
+          animation: 150,
+          ghostClass: "blue-background-class",
+        });
+      }
+    });
+  </script>
+</div>
