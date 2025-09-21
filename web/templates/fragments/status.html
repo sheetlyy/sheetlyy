@@ -1,12 +1,8 @@
-<p>{{ status }}</p>
-{% if is_finished %}
-<a
-  id="auto-download"
-  href="/download/{{ job_id }}"
-  style="display: none"
-  download
-></a>
-<script>
-  document.getElementById("auto-download").click();
-</script>
-{% endif %}
+<div
+  hx-get="/status"
+  hx-swap="outerHTML"
+  hx-trigger="load delay:5s"
+  hx-vals='{"order": "{{ order }}"}'
+>
+  <p>{{ status }}</p>
+</div>

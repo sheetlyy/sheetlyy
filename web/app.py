@@ -9,10 +9,10 @@ from litestar.template.config import TemplateConfig
 from web.routes import (
     health_check,
     index,
-    add_file_input,
     handle_file_uploads,
     submit_ordered_files,
     get_status,
+    prepare_download,
     download_file,
 )
 
@@ -24,10 +24,10 @@ app = Litestar(
     route_handlers=[
         create_static_files_router(path="/static", directories=[BASE_DIR / "static"]),
         index,
-        add_file_input,
         handle_file_uploads,
         submit_ordered_files,
         get_status,
+        prepare_download,
         download_file,
         health_check,
     ],
