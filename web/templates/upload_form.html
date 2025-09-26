@@ -4,7 +4,7 @@
   hx-swap="outerHTML"
   hx-encoding="multipart/form-data"
 >
-  <label for="files">Select files to upload (max 100MB):</label>
+  <label for="files">Select files to upload (max {{ max_upload_mb }}MB):</label>
   <input id="files" type="file" name="files[]" multiple />
 
   <button type="submit">Upload</button>

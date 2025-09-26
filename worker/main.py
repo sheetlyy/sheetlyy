@@ -57,12 +57,6 @@ def run_inference(image_bytes: bytes, is_first_page: bool) -> dict[str, Any]:
     ## LOADING/PREPROCESSING SEGMENTATION PREDICTIONS
     logger.info("Loading segmentation")
     ### IMAGE PREPROCESSING
-    # image = cv2.imread(image_path)
-    # image = autocrop(image)
-    # image = resize_image(image)
-
-    # image = preprocess_image_from_bytes(image_bytes)
-
     image: NDArray = np.load(io.BytesIO(image_bytes))
     preprocessed, _ = color_adjust(image)
 
@@ -199,7 +193,7 @@ def run_inference(image_bytes: bytes, is_first_page: bool) -> dict[str, Any]:
     if len(staffs) == 0:
         raise Exception("No staffs found")
 
-    global_unit_size = np.mean([staff.average_unit_size for staff in staffs])
+    # global_unit_size = np.mean([staff.average_unit_size for staff in staffs])
 
     write_debug_image(image, "18_staffs.png", drawables=staffs)
 
@@ -219,9 +213,9 @@ def run_inference(image_bytes: bytes, is_first_page: bool) -> dict[str, Any]:
     logger.info(f"Found {len(rests)} rests")
 
     ## PREPARING BRACES AND DOTS
-    all_classified = (
-        predictions.notehead + predictions.clefs_keys + predictions.stems_rests
-    )
+    # all_classified = (
+    #     predictions.notehead + predictions.clefs_keys + predictions.stems_rests
+    # )
     brace_dot_img = prepare_brace_dot_image(predictions.symbols, predictions.staff)
     brace_dot = create_rotated_bboxes(
         brace_dot_img, skip_merging=True, max_size=(100, -1)
@@ -259,26 +253,17 @@ def run_inference(image_bytes: bytes, is_first_page: bool) -> dict[str, Any]:
         result_staffs[0].measures[0].is_new_page = True
 
     return {"page": Page(result_staffs)}
-    # pages.append(Page(result_staffs))
 
 
 def generate_musicxml(pages: list[Page]) -> bytes:
-    # xml_name = "result.musicxml"
-
     # MERGE STAFFS ACROSS PAGES BY VOICE
     total_staffs = merge_staffs_across_pages(pages)
 
     # GENERATE MUSICXML
-    logger.info("Writing XML")
     xml = generate_xml(total_staffs)
 
     xml_string = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n'
     xml_string += xml.to_string()
     file_data = xml_string.encode("utf-8")
 
-    # logger.info(f"Writing results to {xml_name}")
     return file_data
-    # return {
-    #     "filename": xml_name,
-    #     "file_data": file_data,
-    # }

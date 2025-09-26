@@ -7,14 +7,14 @@
     hx-target="#submit-form-container"
     hx-indicator="#submitting"
   >
-    {% for file_id, info in files %}
+    {% for file in files %}
     <div>
-      <input type="hidden" name="file" value="{{ file_id }}" />
+      <input type="hidden" name="file" value="{{ file.file_id }}" />
       <img
-        src="data:{{ info['content_type'] }};base64,{{ info['img_b64'] }}"
+        src="data:{{ file.content_type }};base64,{{ file.thumbnail_b64 }}"
         width="150"
       />
-      {{ info['filename'] }}
+      {{ file.filename }}
     </div>
     {% endfor %}
   </form>

@@ -6,6 +6,7 @@ from litestar.plugins.htmx import HTMXPlugin
 from litestar.contrib.jinja import JinjaTemplateEngine
 from litestar.template.config import TemplateConfig
 
+from web.utils.constants import DEBUG, MAX_UPLOAD_SIZE
 from web.routes import (
     health_check,
     index,
@@ -17,7 +18,6 @@ from web.routes import (
 )
 
 
-DEBUG = True
 BASE_DIR = Path(__file__).parent
 
 app = Litestar(
@@ -36,5 +36,5 @@ app = Litestar(
     template_config=TemplateConfig(
         directory=BASE_DIR / "templates", engine=JinjaTemplateEngine
     ),
-    request_max_body_size=100_000_000,
+    request_max_body_size=MAX_UPLOAD_SIZE,
 )
