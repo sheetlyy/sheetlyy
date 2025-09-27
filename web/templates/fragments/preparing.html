@@ -1,8 +1,10 @@
-<p
+<div
+  class="content-area"
   hx-get="/prepare"
   hx-swap="outerHTML"
   hx-trigger="load"
   hx-vals='{"order": "{{ order }}"}'
 >
-  Preparing file for download...
-</p>
+  <p id="preparing-text">preparing file for download...</p>
+  <span class="worker-loader"></span>
+</div>

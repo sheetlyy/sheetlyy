@@ -1,32 +1,36 @@
-<div id="submit-form-container">
+<div id="reorder-form-container">
   <form
-    class="sortable"
-    id="submit-form"
+    id="reorder-form"
     hx-post="/submit/{{ upload_id }}"
     hx-swap="outerHTML"
-    hx-target="#submit-form-container"
-    hx-indicator="#submitting"
+    hx-target="#reorder-form-container"
   >
-    {% for file in files %}
-    <div>
-      <input type="hidden" name="file" value="{{ file.file_id }}" />
-      <img
-        src="data:{{ file.content_type }};base64,{{ file.thumbnail_b64 }}"
-        width="150"
-      />
-      {{ file.filename }}
+    <div id="reorder-area" class="content-area sortable">
+      {% for file in files %}
+      <div class="file-draggable">
+        <input type="hidden" name="file" value="{{ file.file_id }}" />
+        <img
+          src="data:{{ file.content_type }};base64,{{ file.thumbnail_b64 }}"
+          class="file-thumbnail"
+        />
+        <p class="file-name">{{ file.filename }}</p>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
+
+    <div class="submit-area">
+      <span class="htmx-indicator spinner-loader"></span>
+      <button form="reorder-form" type="submit">submit</button>
+    </div>
   </form>
-  <button form="submit-form" type="submit">Submit</button>
-  <p id="submitting" class="htmx-indicator">Submitting...</p>
+
   <script>
     htmx.onLoad(function (content) {
       let sortables = content.querySelectorAll(".sortable");
       for (let sortable of sortables) {
         let sortableInstance = new Sortable(sortable, {
           animation: 150,
-          ghostClass: "blue-background-class",
+          draggable: ".file-draggable",
         });
       }
     });

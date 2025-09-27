@@ -13,10 +13,8 @@ uv run -- litestar --app=web.app:app run --reload
 ### Redis
 
 ```
-sudo docker run -d --name redis -p 6379:6379 redis:<version>
+sudo docker run -d --name redis -p 6379:6379 redis:8.2
 ```
-
-(version: 8.2)
 
 ### RQ
 

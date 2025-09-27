@@ -4,9 +4,13 @@
   hx-swap="outerHTML"
   hx-encoding="multipart/form-data"
 >
-  <label for="files">Select files to upload (max {{ max_upload_mb }}MB):</label>
-  <input id="files" type="file" name="files[]" multiple />
+  <div id="select-area" class="content-area">
+    <input id="files" type="file" name="files[]" multiple />
+    <label for="files" class="finetext">(max. {{ max_upload_mb }} MB)</label>
+  </div>
 
-  <button type="submit">Upload</button>
-  <p class="htmx-indicator">Uploading...</p>
+  <div class="submit-area">
+    <span class="htmx-indicator spinner-loader"></span>
+    <button id="submit" type="submit">upload</button>
+  </div>
 </form>

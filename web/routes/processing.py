@@ -23,17 +23,14 @@ def get_status(order: str) -> Template:
     )
 
     if all_finished:
-        status = "Complete, preparing for download..."
-    elif any_failed:
-        status = "Failed to complete. Please reupload and try again."
-    else:
-        status = (
-            f"Processing... ({num_finished} of {len(job_statuses)} page(s) completed)"
-        )
-
-    if all_finished:
         context = {"order": order}
         return HTMXTemplate(template_name="fragments/preparing.html", context=context)
+    elif any_failed:
+        status = "😢 conversion failed. please reupload and try again."
     else:
-        context = {"status": status, "order": order}
-        return HTMXTemplate(template_name="fragments/status.html", context=context)
+        status = (
+            f"processing... ({num_finished} of {len(job_statuses)} page(s) completed)"
+        )
+
+    context = {"status": status, "order": order, "any_failed": any_failed}
+    return HTMXTemplate(template_name="fragments/status.html", context=context)

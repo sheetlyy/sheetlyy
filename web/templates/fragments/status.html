@@ -1,8 +1,12 @@
 <div
+  class="content-area"
   hx-get="/status"
   hx-swap="outerHTML"
   hx-trigger="load delay:5s"
   hx-vals='{"order": "{{ order }}"}'
 >
-  <p>{{ status }}</p>
+  <p id="status-text">{{ status }}</p>
+  {% if not any_failed %}
+  <span class="worker-loader"></span>
+  {% endif %}
 </div>

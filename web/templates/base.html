@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,300..900;1,300..900&family=Vazirmatn:wght@100..900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Zilla+Slab&display=swap"
       rel="stylesheet"
     />
 
@@ -20,9 +20,12 @@
     <script src="/static/js/Sortable.min.js"></script>
   </head>
   <body>
-    <main>
-      <h1>Welcome!</h1>
-      {% include 'upload_form.html' %}
+    <main id="main-content">
+      <div id="form-container">
+        <h1>🎶 sheetlyy</h1>
+        <p id="subtitle">convert sheet music images to musicxml</p>
+        {% include 'upload_form.html' %}
+      </div>
     </main>
   </body>
 </html>

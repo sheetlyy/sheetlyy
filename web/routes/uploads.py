@@ -128,5 +128,5 @@ async def submit_ordered_files(request: Request, upload_id: str) -> Template:
             failure_ttl=REDIS_TIMEOUT,
         )
 
-    context = {"status": "Waiting for status...", "order": " ".join(ordered_files)}
+    context = {"status": "waiting for status...", "order": " ".join(ordered_files)}
     return HTMXTemplate(template_name="fragments/status.html", context=context)
