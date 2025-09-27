@@ -8,7 +8,7 @@ A web app for converting photos of sheet music into MusicXML files
 
 ```
 source .env
-rq worker-pool -n 2
+uv run -- rq worker-pool -n 2
 ```
 
 ## How to run (dev)
@@ -28,7 +28,7 @@ sudo docker run -d --name redis -p 6379:6379 redis:8.2
 ### RQ workers
 
 ```
-rq worker-pool -n 2
+uv run -- rq worker-pool -n 2
 ```
 
 ## How to test
