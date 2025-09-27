@@ -202,7 +202,7 @@ def color_adjust(image: NDArray, block_size: int = 40) -> tuple[NDArray, NDArray
         return image, image
 
 
-def preprocess_image_from_bytes(image_bytes: bytes) -> bytes:
+def preprocess_image(image_bytes: bytes) -> bytes:
     # image = cv2.imread(image_path)
 
     arr = np.frombuffer(image_bytes, np.uint8)

@@ -2,7 +2,6 @@ import io
 import logging
 import cv2
 import numpy as np
-from typing import Any
 
 from worker.utils.download import download_models
 from worker.utils.constants import NDArray
@@ -41,6 +40,9 @@ from worker.musicxml.xml_generator import generate_xml
 from worker.utils.debug import write_debug_image
 from worker.classes.results import Page
 
+from redis import Redis
+from web.utils.clients import r
+
 logging.basicConfig(
     level=logging.INFO,
     format="(%(name)s:%(lineno)s) - %(levelname)s - %(message)s",
@@ -48,7 +50,19 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run_inference(image_bytes: bytes, is_first_page: bool) -> dict[str, Any]:
+def get_image(image_key: str, r: Redis) -> bytes:
+    """
+    Fetches the file from Redis under the given key.
+    """
+    image_bytes = r.get(image_key)
+    if image_bytes is None:
+        raise Exception("Invalid file ID, file not found")
+    r.delete(image_key)
+
+    return image_bytes  # type: ignore
+
+
+def run_inference(image_key: str, is_first_page: bool) -> Page:
     # download models
     download_models()
 
@@ -57,6 +71,7 @@ def run_inference(image_bytes: bytes, is_first_page: bool) -> dict[str, Any]:
     ## LOADING/PREPROCESSING SEGMENTATION PREDICTIONS
     logger.info("Loading segmentation")
     ### IMAGE PREPROCESSING
+    image_bytes = get_image(image_key, r)
     image: NDArray = np.load(io.BytesIO(image_bytes))
     preprocessed, _ = color_adjust(image)
 
@@ -252,7 +267,7 @@ def run_inference(image_bytes: bytes, is_first_page: bool) -> dict[str, Any]:
     if not is_first_page:
         result_staffs[0].measures[0].is_new_page = True
 
-    return {"page": Page(result_staffs)}
+    return Page(result_staffs)
 
 
 def generate_musicxml(pages: list[Page]) -> bytes:

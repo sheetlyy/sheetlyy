@@ -8,7 +8,7 @@ from web.utils.clients import r
 
 @get("/status", sync_to_thread=False)
 def get_status(order: str) -> Template:
-    ordered_files: list[str] = order.split(" ")
+    ordered_files: list[str] = order.split(",")
 
     job_statuses: list[JobStatus] = []
     for file_id in ordered_files:
