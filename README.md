@@ -8,7 +8,7 @@ A web app for converting photos of sheet music into MusicXML files
 
 ```
 source .env
-uv run -- rq worker-pool -n 2
+uv run -- rq worker-pool -n 2 --url $REDIS_URL
 ```
 
 ## How to run (dev)
