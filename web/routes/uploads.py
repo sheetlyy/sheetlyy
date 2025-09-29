@@ -45,8 +45,7 @@ async def handle_file_uploads(
         file_id = str(uuid.uuid4())
         file_data = await file.read()
 
-        compressed_bytes = preprocess_image(file_data)
-        r.set(get_file_key(file_id), compressed_bytes, ex=REDIS_TIMEOUT)
+        r.set(get_file_key(file_id), file_data, ex=REDIS_TIMEOUT)
 
         files_metadata.append(
             FileMetadata(

@@ -4,8 +4,7 @@ import cv2
 import numpy as np
 
 from worker.utils.download import download_models
-from worker.utils.constants import NDArray
-from worker.utils.image_preprocessing import color_adjust
+from worker.utils.image_preprocessing import color_adjust, preprocess_image
 from worker.segmentation.inference import generate_segmentation_preds
 from worker.utils.image_postprocessing import (
     filter_segmentation_preds,
@@ -72,7 +71,7 @@ def run_inference(image_key: str, is_first_page: bool) -> Page:
     logger.info("Loading segmentation")
     ### IMAGE PREPROCESSING
     image_bytes = get_image(image_key, r)
-    image: NDArray = np.load(io.BytesIO(image_bytes))
+    image = preprocess_image(image_bytes)
     preprocessed, _ = color_adjust(image)
 
     ### MODEL INFERENCE
