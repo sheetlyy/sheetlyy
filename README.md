@@ -28,7 +28,7 @@ sudo docker run -d --name redis -p 6379:6379 redis:8.2
 ### RQ workers
 
 ```
-uv run -- rq worker-pool -n 2 --url redis://localhost:6379
+uv run -- rq worker-pool -n 2
 ```
 
 ## How to test
