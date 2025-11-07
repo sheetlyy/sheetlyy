@@ -1,8 +1,10 @@
 # sheetlyy
 
-A web app for converting photos of sheet music into MusicXML files
+A personal web app for converting photos of sheet music into MusicXML files. This project uses image segmentation techniques and a transformer model based heavily on [homr](https://github.com/liebharc/homr), adapted to support multi-page outputs, a web-based interface, and some bug fixes.
 
 ## How to run (production)
+
+Because I'm not going to spend hundreds of dollars running inference workers on the cloud for a personal project, when I can run them locally for free:
 
 ### RQ workers
 
